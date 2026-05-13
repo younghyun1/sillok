@@ -128,6 +128,86 @@ fn records_note_and_reads_day_tree() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 #[test]
+fn records_repeated_notes_for_existing_day() -> Result<(), Box<dyn std::error::Error>> {
+    let (_dir, store) = temp_store()?;
+    let first = run_json(
+        &store,
+        &[
+            "--tz",
+            "UTC",
+            "--at",
+            "2026-05-13T08:00:00Z",
+            "note",
+            "first repeated write",
+        ],
+    )?;
+    assert_eq!(first["ok"], true);
+
+    let second = run_json(
+        &store,
+        &[
+            "--tz",
+            "UTC",
+            "--at",
+            "2026-05-13T09:00:00Z",
+            "note",
+            "second repeated write",
+        ],
+    )?;
+    assert_eq!(second["ok"], true);
+
+    let day = run_json(&store, &["--tz", "UTC", "day", "--date", "2026-05-13"])?;
+    assert_eq!(day["data"]["records"].as_array().map(Vec::len), Some(2));
+    assert_eq!(day["data"]["records"][0]["text"], "first repeated write");
+    assert_eq!(day["data"]["records"][1]["text"], "second repeated write");
+    Ok(())
+}
+
+#[test]
+fn records_repeated_objectives_for_existing_day() -> Result<(), Box<dyn std::error::Error>> {
+    let (_dir, store) = temp_store()?;
+    let first = run_json(
+        &store,
+        &[
+            "--tz",
+            "UTC",
+            "--at",
+            "2026-05-13T08:00:00Z",
+            "objective",
+            "add",
+            "first repeated objective",
+        ],
+    )?;
+    assert_eq!(first["ok"], true);
+
+    let second = run_json(
+        &store,
+        &[
+            "--tz",
+            "UTC",
+            "--at",
+            "2026-05-13T09:00:00Z",
+            "objective",
+            "add",
+            "second repeated objective",
+        ],
+    )?;
+    assert_eq!(second["ok"], true);
+
+    let day = run_json(&store, &["--tz", "UTC", "day", "--date", "2026-05-13"])?;
+    assert_eq!(day["data"]["records"].as_array().map(Vec::len), Some(2));
+    assert_eq!(
+        day["data"]["records"][0]["text"],
+        "first repeated objective"
+    );
+    assert_eq!(
+        day["data"]["records"][1]["text"],
+        "second repeated objective"
+    );
+    Ok(())
+}
+
+#[test]
 fn completes_objective_and_truncates_with_backup() -> Result<(), Box<dyn std::error::Error>> {
     let (_dir, store) = temp_store()?;
     let objective = run_json(

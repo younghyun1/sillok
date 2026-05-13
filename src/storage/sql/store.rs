@@ -2,6 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use turso::transaction::{Transaction, TransactionBehavior};
 use turso::{Builder, Connection, Row, Value, params, params_from_iter};
 
 use crate::domain::archive::{ARCHIVE_SCHEMA_VERSION, Archive};
@@ -214,28 +215,30 @@ impl SqlStore {
             ));
         }
         ensure_parent_dir(&self.path)?;
-        let conn = self.connect().await?;
+        let mut conn = self.connect().await?;
         crate::storage::sql::schema::create(&conn).await?;
+        let tx = begin_write_transaction(&mut conn).await?;
         write_meta(
-            &conn,
+            &tx,
             "store_datashape_version",
             &STORE_DATASHAPE_VERSION.to_string(),
         )
         .await?;
-        write_meta(&conn, "archive_id", &archive.archive_id.to_string()).await?;
+        write_meta(&tx, "archive_id", &archive.archive_id.to_string()).await?;
         write_meta(
-            &conn,
+            &tx,
             "created_at_ms",
             &archive.created_at.as_millis().to_string(),
         )
         .await?;
         for event in &archive.events {
-            insert_event(&conn, event).await?;
+            insert_event(&tx, event).await?;
         }
         let view = ChronicleView::build(archive)?;
         for record in view.records.values() {
-            upsert_record(&conn, record).await?;
+            upsert_record(&tx, record).await?;
         }
+        tx.commit().await?;
         validate_integrity(&conn).await?;
         checkpoint(&conn).await?;
         Ok(StoreStats {
@@ -258,7 +261,7 @@ impl SqlStore {
             input.context.clone(),
         )
         .await?;
-        let tx = conn.transaction().await?;
+        let tx = begin_write_transaction(&mut conn).await?;
         let (day_id, parent_id) = match input.parent {
             Some(parent_id) => {
                 let parent = require_active_record(&tx, parent_id).await?;
@@ -330,7 +333,7 @@ impl SqlStore {
             input.context.clone(),
         )
         .await?;
-        let tx = conn.transaction().await?;
+        let tx = begin_write_transaction(&mut conn).await?;
         let day_id = ensure_day(
             &tx,
             input.day_key,
@@ -387,7 +390,7 @@ impl SqlStore {
             input.context.clone(),
         )
         .await?;
-        let tx = conn.transaction().await?;
+        let tx = begin_write_transaction(&mut conn).await?;
         let mut record = require_active_record(&tx, input.objective_id).await?;
         if record.kind != RecordKind::Objective {
             tx.rollback().await?;
@@ -427,7 +430,7 @@ impl SqlStore {
             input.context.clone(),
         )
         .await?;
-        let tx = conn.transaction().await?;
+        let tx = begin_write_transaction(&mut conn).await?;
         let mut record = require_active_record(&tx, input.record_id).await?;
         let event = ChronicleEvent::new(
             input.event_at,
@@ -471,7 +474,7 @@ impl SqlStore {
             input.context.clone(),
         )
         .await?;
-        let tx = conn.transaction().await?;
+        let tx = begin_write_transaction(&mut conn).await?;
         let mut record = require_active_record(&tx, input.record_id).await?;
         if record.kind == RecordKind::Day {
             tx.rollback().await?;
@@ -964,7 +967,7 @@ async fn ensure_initialized(
         validate_store_version(conn).await?;
         return Ok(false);
     }
-    let tx = conn.transaction().await?;
+    let tx = begin_write_transaction(conn).await?;
     let archive_id = ChronicleId::new_v7();
     write_meta(
         &tx,
@@ -984,6 +987,12 @@ async fn ensure_initialized(
     insert_event(&tx, &init).await?;
     tx.commit().await?;
     Ok(true)
+}
+
+async fn begin_write_transaction(conn: &mut Connection) -> Result<Transaction<'_>, SillokError> {
+    conn.transaction_with_behavior(TransactionBehavior::Immediate)
+        .await
+        .map_err(SillokError::from)
 }
 
 async fn ensure_day(
