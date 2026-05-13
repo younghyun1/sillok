@@ -1,0 +1,7 @@
+# defaults to baseline ARM or x86_64; autovectorization helps a lot in some scenarios
+# while CI/CD pipelines and containerized builds running on opaque VMs have to be accounted for, most hosts provide ISA-level optimization opportunities that enable greater vector instruction usage.
+[build]
+rustflags = ["-Ctarget-cpu=native"]
+
+[unstable]
+build-std = ["std", "core", "alloc", "panic_abort"]
