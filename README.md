@@ -82,80 +82,40 @@ readable wall-clock time:
 sillok --human day
 ```
 
-## Daily Workflow
+## Command Reference
 
-Initialize explicitly, or let the first write initialize the archive:
+Global options:
+
+```bash
+sillok --store /path/to/sillok.slk.zst <command>
+sillok --human <command>
+sillok --json <command>
+sillok --at 2026-05-13T10:00:00Z <command>
+sillok --tz America/Denver <command>
+```
+
+Initialize the archive if absent:
 
 ```bash
 sillok init
 ```
 
-Add an objective for the day:
-
-```bash
-sillok objective add "Finish archive indexing"
-```
-
-Record a completed task:
+Record a task or work note. Notes default to `completed`; use `--status` for
+`open`, `active`, `blocked`, or `completed`:
 
 ```bash
 sillok note "Implemented timerange query indexing" --tags rust,sillok
+sillok note "Investigating archive compaction" --status active --purpose "Reduce read latency"
+sillok note "Split reducer from view indexing" --parent <record_id> --tags rust,indexing
 ```
 
-Attach a note under an objective by passing the objective id as the parent:
+Manage day objectives:
 
 ```bash
-sillok note "Split reducer from view indexing" --parent <objective_id> --tags rust,sillok
-```
-
-Complete the objective:
-
-```bash
+sillok objective add "Finish archive indexing"
+sillok objective add "Finish archive indexing" --tags rust,storage
 sillok objective complete <objective_id> --note "All scoped work is complete"
 ```
-
-Read today:
-
-```bash
-sillok day
-```
-
-Read a specific day:
-
-```bash
-sillok day --date 2026-05-13
-```
-
-Query a timerange:
-
-```bash
-sillok query --from 2026-05-13T00:00:00 --to 2026-05-13T23:59:59
-```
-
-## Agent Integration
-
-Add a short Sillok section to a repository `AGENTS.md` so coding agents record
-objectives and completed work while they operate:
-
-````markdown
-## Sillok
-
-Use Sillok for substantive agentic work. Record objectives, completed tasks,
-and corrections during the session instead of relying on chat history.
-
-```bash
-sillok objective add "Ship the storage/indexing refactor"
-sillok note "Split reducer from view indexing" --parent <objective_id> --tags rust,sillok
-sillok note "Fixed relink regression coverage" --parent <objective_id> --tags tests
-sillok objective complete <objective_id> --note "Scoped work is complete"
-sillok day --human
-```
-
-JSON is the default and is intended for agents. Use `--human` when presenting a
-summary to a person.
-````
-
-## Corrections
 
 Amend current derived state:
 
@@ -172,54 +132,73 @@ Retract a task or objective from current views:
 sillok retract <record_id> --reason "Recorded against the wrong objective"
 ```
 
-Show current state and event history for one record:
+Read records:
 
 ```bash
 sillok show <record_id>
-```
-
-Render a tree:
-
-```bash
+sillok day
+sillok day --date 2026-05-13
+sillok query --from 2026-05-13T00:00:00 --to 2026-05-13T23:59:59
+sillok query --from 2026-05-13T00:00:00 --to 2026-05-13T23:59:59 --tag rust
+sillok query --from 2026-05-13T00:00:00 --to 2026-05-13T23:59:59 --status completed
+sillok query --from 2026-05-13T00:00:00 --to 2026-05-13T23:59:59 --context /home/cyh/project
 sillok tree --root <record_id>
 sillok tree --date 2026-05-13
 ```
 
-## Backfill And Timezones
-
-Use `--at` to record when work occurred, and `--tz` to choose day attribution
-for naive timestamps:
-
-```bash
-sillok --tz Asia/Seoul --at 2026-05-13T21:30:00 note "Backfilled a late task"
-```
-
-RFC3339 timestamps keep their offset:
-
-```bash
-sillok --at 2026-05-13T21:30:00+09:00 note "Backfilled a Seoul-time task"
-```
-
-## Maintenance
-
-Validate the archive:
+Validate and export:
 
 ```bash
 sillok doctor
-```
-
-Export current records as JSON:
-
-```bash
 sillok export json
 sillok export json --from 2026-05-13T00:00:00 --to 2026-05-13T23:59:59
 ```
 
-Reset the whole archive. This creates a timestamped backup first:
+Reset the archive only when an operator explicitly asks for a full reset. This
+creates a timestamped backup first:
 
 ```bash
 sillok truncate --yes
 ```
+
+Backfill with explicit timestamps and timezone attribution:
+
+```bash
+sillok --tz Asia/Seoul --at 2026-05-13T21:30:00 note "Backfilled a late task"
+sillok --at 2026-05-13T21:30:00+09:00 note "Backfilled a Seoul-time task"
+```
+
+## Agent Integration
+
+Add a short Sillok section to a repository `AGENTS.md` so coding agents record
+objectives and completed work while they operate:
+
+````markdown
+## Sillok
+
+Use Sillok for substantive agentic work. Record objectives, completed tasks,
+and corrections during the session instead of relying on chat history. JSON is
+the default output for agents; use `--human` only for summaries intended for a
+person. Never run `sillok truncate --yes` unless the user explicitly asks to
+reset the whole archive.
+
+```bash
+sillok objective add "Ship the storage/indexing refactor"
+sillok note "Split reducer from view indexing" --parent <objective_id> --tags rust,sillok
+sillok amend <record_id> --status completed
+sillok note "Fixed relink regression coverage" --parent <objective_id> --tags tests
+sillok show <record_id>
+sillok query --from 2026-05-13T00:00:00 --to 2026-05-13T23:59:59 --tag rust
+sillok objective complete <objective_id> --note "Scoped work is complete"
+sillok day --human
+```
+
+Use `--at` for backfilled work and `--tz` when day attribution matters:
+
+```bash
+sillok --tz America/Denver --at 2026-05-13T16:45:00 note "Backfilled release notes" --tags docs
+```
+````
 
 ## Development
 
