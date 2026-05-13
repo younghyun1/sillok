@@ -197,8 +197,6 @@ sillok truncate --yes
 
 ## Development
 
-The repo uses nightly Rust and Cargo.
-
 Run checks:
 
 ```bash
