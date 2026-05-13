@@ -129,6 +129,29 @@ Query a timerange:
 sillok query --from 2026-05-13T00:00:00 --to 2026-05-13T23:59:59
 ```
 
+## Agent Integration
+
+Add a short Sillok section to a repository `AGENTS.md` so coding agents record
+objectives and completed work while they operate:
+
+````markdown
+## Sillok
+
+Use Sillok for substantive agentic work. Record objectives, completed tasks,
+and corrections during the session instead of relying on chat history.
+
+```bash
+sillok objective add "Ship the storage/indexing refactor"
+sillok note "Split reducer from view indexing" --parent <objective_id> --tags rust,sillok
+sillok note "Fixed relink regression coverage" --parent <objective_id> --tags tests
+sillok objective complete <objective_id> --note "Scoped work is complete"
+sillok day --human
+```
+
+JSON is the default and is intended for agents. Use `--human` when presenting a
+summary to a person.
+````
+
 ## Corrections
 
 Amend current derived state:

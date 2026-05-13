@@ -1,6 +1,7 @@
 use serde_json::json;
 
 use crate::cli::args::{DayArgs, ExportJsonArgs, IdArgs, QueryArgs, TreeArgs};
+use crate::cli::human;
 use crate::cli::output::CommandOutcome;
 use crate::domain::event::RecordKind;
 use crate::domain::id::ChronicleId;
@@ -53,6 +54,7 @@ pub fn day(ctx: OperationContext, args: DayArgs) -> Result<CommandOutcome, Sillo
                 .filter(|record| record.kind == RecordKind::Objective)
                 .cloned()
                 .collect::<Vec<_>>();
+            let human = human::day(&day_key, records.len(), Some(&tree));
             Ok(CommandOutcome::new(
                 "day",
                 json!({
@@ -65,7 +67,7 @@ pub fn day(ctx: OperationContext, args: DayArgs) -> Result<CommandOutcome, Sillo
             )
             .with_ids(json!({ "day_id": day_id }))
             .with_warnings(ctx.warnings)
-            .with_human(format!("{} records for {}", records.len(), day_key.date)))
+            .with_human(human))
         }
         None => Ok(CommandOutcome::new(
             "day",
@@ -78,7 +80,7 @@ pub fn day(ctx: OperationContext, args: DayArgs) -> Result<CommandOutcome, Sillo
             }),
         )
         .with_warnings(ctx.warnings)
-        .with_human(format!("0 records for {}", day_key.date))),
+        .with_human(human::day(&day_key, 0, None))),
     }
 }
 

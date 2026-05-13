@@ -17,6 +17,16 @@ fn temp_store() -> Result<(tempfile::TempDir, PathBuf), Box<dyn std::error::Erro
 }
 
 fn run_json(store: &Path, args: &[&str]) -> Result<Value, Box<dyn std::error::Error>> {
+    let stdout = run_stdout(store, args)?;
+    match serde_json::from_str::<Value>(&stdout) {
+        Ok(value) => Ok(value),
+        Err(error) => Err(boxed_error(format!(
+            "json parse failed: {error}; stdout={stdout}"
+        ))),
+    }
+}
+
+fn run_stdout(store: &Path, args: &[&str]) -> Result<String, Box<dyn std::error::Error>> {
     let mut command = match Command::cargo_bin("sillok") {
         Ok(value) => value,
         Err(error) => return Err(Box::new(error)),
@@ -36,14 +46,9 @@ fn run_json(store: &Path, args: &[&str]) -> Result<Value, Box<dyn std::error::Er
             "command failed: stdout={stdout} stderr={stderr}"
         )));
     }
-    match serde_json::from_slice::<Value>(&output.stdout) {
+    match String::from_utf8(output.stdout) {
         Ok(value) => Ok(value),
-        Err(error) => {
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            Err(boxed_error(format!(
-                "json parse failed: {error}; stdout={stdout}"
-            )))
-        }
+        Err(error) => Err(Box::new(error)),
     }
 }
 
@@ -79,6 +84,14 @@ fn records_note_and_reads_day_tree() -> Result<(), Box<dyn std::error::Error>> {
     let day = run_json(&store, &["--tz", "UTC", "day", "--date", "2026-05-13"])?;
     assert_eq!(day["ok"], true);
     assert_eq!(day["data"]["records"][0]["record_id"], task_id);
+
+    let human = run_stdout(
+        &store,
+        &["--human", "--tz", "UTC", "day", "--date", "2026-05-13"],
+    )?;
+    assert!(human.contains("2026-05-13 (UTC) - 1 record"));
+    assert!(human.contains("[completed task] Implemented archive storage"));
+    assert!(human.contains("tags: rust, storage"));
 
     let show = run_json(&store, &["show", &task_id])?;
     assert_eq!(show["ok"], true);
