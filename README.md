@@ -74,8 +74,9 @@ JSON is the default output and is intended for agents:
 }
 ```
 
-JSON records include `created_at` and `updated_at` fields. Use `--human` for
-interactive summaries with the same timing information rendered into the text:
+JSON records include stable RFC3339 `created_at` and `updated_at` fields. Use
+`--human` for interactive summaries with local-device timestamps rendered as
+readable wall-clock time:
 
 ```bash
 sillok --human day

@@ -52,6 +52,17 @@ impl Timestamp {
             Err(_) => self.0.to_string(),
         }
     }
+
+    /// Formats the timestamp in the current device timezone for human output.
+    pub fn to_local_human(self) -> String {
+        match self.to_utc() {
+            Ok(value) => value
+                .with_timezone(&Local)
+                .format("%Y-%m-%d %I:%M %p")
+                .to_string(),
+            Err(_) => self.0.to_string(),
+        }
+    }
 }
 
 impl Display for Timestamp {

@@ -32,6 +32,7 @@ fn run_stdout(store: &Path, args: &[&str]) -> Result<String, Box<dyn std::error:
         Err(error) => return Err(Box::new(error)),
     };
     command.arg("--store").arg(store);
+    command.env("TZ", "UTC");
     for arg in args {
         command.arg(arg);
     }
@@ -96,9 +97,8 @@ fn records_note_and_reads_day_tree() -> Result<(), Box<dyn std::error::Error>> {
         &["--human", "--tz", "UTC", "day", "--date", "2026-05-13"],
     )?;
     assert!(human.contains("2026-05-13 (UTC) - 1 record"));
-    assert!(
-        human.contains("[completed task] Implemented archive storage (2026-05-13T10:00:00+00:00)")
-    );
+    assert!(human.contains("[completed task] Implemented archive storage (2026-05-13 10:00 AM"));
+    assert!(!human.contains("2026-05-13T10:00:00+00:00"));
     assert!(human.contains("tags: rust, storage"));
 
     let show = run_json(&store, &["show", &task_id])?;
@@ -108,7 +108,7 @@ fn records_note_and_reads_day_tree() -> Result<(), Box<dyn std::error::Error>> {
         "Implemented archive storage"
     );
     let show_human = run_stdout(&store, &["--human", "show", &task_id])?;
-    assert!(show_human.contains("created: 2026-05-13T10:00:00+00:00"));
+    assert!(show_human.contains("created: 2026-05-13 10:00 AM"));
     assert!(show_human.contains("Events"));
     Ok(())
 }

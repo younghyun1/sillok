@@ -12,7 +12,7 @@ pub fn init(archive: &Archive, created: bool, store: &Path) -> String {
     format!(
         "{state} archive\nid: {}\ncreated: {}\nstore: {}",
         archive.archive_id,
-        archive.created_at,
+        format_time(archive.created_at),
         store.display()
     )
 }
@@ -104,9 +104,10 @@ pub fn doctor_valid(
     checked_at: Timestamp,
 ) -> String {
     format!(
-        "Archive valid\nchecked: {checked_at}\narchive: {}\ncreated: {}\nevents: {}\nrecords: {}\nstore: {}",
+        "Archive valid\nchecked: {}\narchive: {}\ncreated: {}\nevents: {}\nrecords: {}\nstore: {}",
+        format_time(checked_at),
         archive.archive_id,
-        archive.created_at,
+        format_time(archive.created_at),
         archive.events.len(),
         record_count,
         store.display()
@@ -116,7 +117,8 @@ pub fn doctor_valid(
 /// Formats missing-archive `doctor` output.
 pub fn doctor_missing(store: &Path, checked_at: Timestamp) -> String {
     format!(
-        "Archive missing; no corruption found\nchecked: {checked_at}\nstore: {}",
+        "Archive missing; no corruption found\nchecked: {}\nstore: {}",
+        format_time(checked_at),
         store.display()
     )
 }
@@ -128,7 +130,8 @@ pub fn doctor_invalid(
     checked_at: Timestamp,
 ) -> String {
     format!(
-        "Archive invalid\nchecked: {checked_at}\nerror: {error}\nstore: {}",
+        "Archive invalid\nchecked: {}\nerror: {error}\nstore: {}",
+        format_time(checked_at),
         store.display()
     )
 }
@@ -142,7 +145,7 @@ pub fn truncate(archive: &Archive, backup: Option<&Path>, store: &Path) -> Strin
     format!(
         "Truncated archive\narchive: {}\ncreated: {}\nbackup: {}\nstore: {}",
         archive.archive_id,
-        archive.created_at,
+        format_time(archive.created_at),
         backup_value,
         store.display()
     )
@@ -162,11 +165,15 @@ fn push_record_brief(output: &mut String, record: &DerivedRecord, indent: &str) 
         status_label(record.status),
         kind_label(record.kind),
         record.text,
-        record.created_at
+        format_time(record.created_at)
     ));
     output.push_str(&format!("{}  id: {}\n", indent, record.record_id));
     if record.updated_at != record.created_at {
-        output.push_str(&format!("{}  updated: {}\n", indent, record.updated_at));
+        output.push_str(&format!(
+            "{}  updated: {}\n",
+            indent,
+            format_time(record.updated_at)
+        ));
     }
     if let Some(purpose) = &record.purpose {
         output.push_str(&format!("{}  note: {}\n", indent, purpose));
@@ -185,8 +192,16 @@ fn push_record_details(output: &mut String, record: &DerivedRecord, indent: &str
         record.text
     ));
     output.push_str(&format!("{}id: {}\n", indent, record.record_id));
-    output.push_str(&format!("{}created: {}\n", indent, record.created_at));
-    output.push_str(&format!("{}updated: {}\n", indent, record.updated_at));
+    output.push_str(&format!(
+        "{}created: {}\n",
+        indent,
+        format_time(record.created_at)
+    ));
+    output.push_str(&format!(
+        "{}updated: {}\n",
+        indent,
+        format_time(record.updated_at)
+    ));
     output.push_str(&format!("{}day: {}\n", indent, record.day_id));
     if let Some(parent_id) = record.parent_id {
         output.push_str(&format!("{}parent: {}\n", indent, parent_id));
@@ -203,10 +218,14 @@ fn push_event(output: &mut String, event: &ChronicleEvent) {
     output.push_str(&format!(
         "- {} at {} (recorded {})\n",
         event_label(&event.kind),
-        event.event_at,
-        event.recorded_at
+        format_time(event.event_at),
+        format_time(event.recorded_at)
     ));
     output.push_str(&format!("  id: {}\n", event.event_id));
+}
+
+fn format_time(timestamp: Timestamp) -> String {
+    timestamp.to_local_human()
 }
 
 fn event_label(kind: &EventKind) -> &'static str {
