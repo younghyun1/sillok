@@ -1,6 +1,7 @@
 use serde::Serialize;
 use serde_json::{Value, json};
 
+use crate::domain::time::Timestamp;
 use crate::error::{ErrorPayload, SillokError};
 
 /// Successful command response.
@@ -8,6 +9,7 @@ use crate::error::{ErrorPayload, SillokError};
 pub struct SuccessResponse {
     pub ok: bool,
     pub command: &'static str,
+    pub generated_at: Timestamp,
     pub ids: Value,
     pub data: Value,
     pub warnings: Vec<String>,
@@ -18,6 +20,7 @@ pub struct SuccessResponse {
 pub struct FailureResponse {
     pub ok: bool,
     pub command: &'static str,
+    pub generated_at: Timestamp,
     pub error: ErrorPayload,
 }
 
@@ -62,10 +65,11 @@ impl CommandOutcome {
     }
 
     /// Converts into the public success response.
-    pub fn success_response(self) -> SuccessResponse {
+    pub fn success_response(self, generated_at: Timestamp) -> SuccessResponse {
         SuccessResponse {
             ok: true,
             command: self.command,
+            generated_at,
             ids: self.ids,
             data: self.data,
             warnings: self.warnings,
@@ -87,7 +91,7 @@ pub fn print_success(outcome: CommandOutcome, human: bool) -> Result<(), SillokE
             }
         }
     } else {
-        let response = outcome.success_response();
+        let response = outcome.success_response(Timestamp::now());
         println!("{}", serde_json::to_string(&response)?);
         Ok(())
     }
@@ -98,6 +102,7 @@ pub fn print_failure(command: &'static str, error: &SillokError) -> Result<(), S
     let response = FailureResponse {
         ok: false,
         command,
+        generated_at: Timestamp::now(),
         error: error.payload(),
     };
     println!("{}", serde_json::to_string(&response)?);

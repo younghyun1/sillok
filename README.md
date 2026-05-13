@@ -67,13 +67,15 @@ JSON is the default output and is intended for agents:
 {
   "ok": true,
   "command": "note",
+  "generated_at": "2026-05-13T10:00:00+00:00",
   "ids": {},
   "data": {},
   "warnings": []
 }
 ```
 
-Use `--human` for short interactive summaries:
+JSON records include `created_at` and `updated_at` fields. Use `--human` for
+interactive summaries with the same timing information rendered into the text:
 
 ```bash
 sillok --human day

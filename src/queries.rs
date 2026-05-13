@@ -27,11 +27,12 @@ pub fn show(ctx: OperationContext, args: IdArgs) -> Result<CommandOutcome, Sillo
         }
     };
     let events = view.events_for_record(record_id);
+    let human = human::show(&record, &events);
     Ok(
         CommandOutcome::new("show", json!({ "record": record, "events": events }))
             .with_ids(json!({ "record_id": record_id }))
             .with_warnings(ctx.warnings)
-            .with_human(format!("{} {}", record.record_id, record.text)),
+            .with_human(human),
     )
 }
 
@@ -101,12 +102,13 @@ pub fn query(ctx: OperationContext, args: QueryArgs) -> Result<CommandOutcome, S
         tag.as_deref(),
         args.status,
     );
+    let human = human::records(&format!("Query {from} to {to}"), &records);
     Ok(CommandOutcome::new(
         "query",
         json!({ "from": from, "to": to, "records": records }),
     )
     .with_warnings(ctx.warnings)
-    .with_human(format!("{} records", records.len())))
+    .with_human(human))
 }
 
 /// Handles `tree`.
@@ -130,41 +132,50 @@ pub fn tree(ctx: OperationContext, args: TreeArgs) -> Result<CommandOutcome, Sil
                         json!({ "root_id": null, "tree": null }),
                     )
                     .with_warnings(ctx.warnings)
-                    .with_human("empty tree".to_string()));
+                    .with_human(human::tree(None, None)));
                 }
             }
         }
     };
     let tree = view.tree(root_id)?;
+    let human = human::tree(Some(root_id), Some(&tree));
     Ok(
         CommandOutcome::new("tree", json!({ "root_id": root_id, "tree": tree }))
             .with_ids(json!({ "root_id": root_id }))
             .with_warnings(ctx.warnings)
-            .with_human(format!("tree rooted at {root_id}")),
+            .with_human(human),
     )
 }
 
 /// Handles `doctor`.
 pub fn doctor(ctx: OperationContext) -> Result<CommandOutcome, SillokError> {
+    let checked_at = ctx.recorded_at;
     match ctx.store.read_existing()? {
         Some(archive) => match ChronicleView::build(&archive) {
-            Ok(view) => Ok(CommandOutcome::new(
-                "doctor",
-                json!({
-                    "valid": true,
-                    "schema_version": archive.schema_version,
-                    "archive_id": archive.archive_id,
-                    "event_count": archive.events.len(),
-                    "record_count": view.records.len(),
-                    "store": ctx.store.path().display().to_string(),
-                }),
-            )
-            .with_warnings(ctx.warnings)
-            .with_human("archive valid".to_string())),
+            Ok(view) => {
+                let human =
+                    human::doctor_valid(&archive, view.records.len(), ctx.store.path(), checked_at);
+                Ok(CommandOutcome::new(
+                    "doctor",
+                    json!({
+                        "valid": true,
+                        "checked_at": checked_at,
+                        "schema_version": archive.schema_version,
+                        "archive_id": archive.archive_id,
+                        "created_at": archive.created_at,
+                        "event_count": archive.events.len(),
+                        "record_count": view.records.len(),
+                        "store": ctx.store.path().display().to_string(),
+                    }),
+                )
+                .with_warnings(ctx.warnings)
+                .with_human(human))
+            }
             Err(error) => Ok(CommandOutcome::new(
                 "doctor",
                 json!({
                     "valid": false,
+                    "checked_at": checked_at,
                     "error": {
                         "code": error.code(),
                         "message": error.to_string(),
@@ -173,18 +184,19 @@ pub fn doctor(ctx: OperationContext) -> Result<CommandOutcome, SillokError> {
                 }),
             )
             .with_warnings(ctx.warnings)
-            .with_human(format!("archive invalid: {error}"))),
+            .with_human(human::doctor_invalid(&error, ctx.store.path(), checked_at))),
         },
         None => Ok(CommandOutcome::new(
             "doctor",
             json!({
                 "valid": true,
                 "missing": true,
+                "checked_at": checked_at,
                 "store": ctx.store.path().display().to_string(),
             }),
         )
         .with_warnings(ctx.warnings)
-        .with_human("archive missing; no corruption found".to_string())),
+        .with_human(human::doctor_missing(ctx.store.path(), checked_at))),
     }
 }
 
@@ -212,6 +224,7 @@ pub fn export_json(
             ));
         }
     };
+    let human = human::records("Export", &records);
     Ok(CommandOutcome::new(
         "export",
         json!({
@@ -221,7 +234,7 @@ pub fn export_json(
     )
     .with_ids(json!({ "archive_id": archive.archive_id }))
     .with_warnings(ctx.warnings)
-    .with_human(format!("exported {} records", records.len())))
+    .with_human(human))
 }
 
 fn ensure_range(from: Timestamp, to: Timestamp) -> Result<(), SillokError> {

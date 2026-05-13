@@ -79,10 +79,16 @@ fn records_note_and_reads_day_tree() -> Result<(), Box<dyn std::error::Error>> {
         ],
     )?;
     assert_eq!(note["ok"], true);
+    string_at(&note, "/generated_at")?;
+    assert_eq!(
+        note["data"]["record"]["created_at"],
+        "2026-05-13T10:00:00+00:00"
+    );
     let task_id = string_at(&note, "/ids/task_id")?.to_string();
 
     let day = run_json(&store, &["--tz", "UTC", "day", "--date", "2026-05-13"])?;
     assert_eq!(day["ok"], true);
+    string_at(&day, "/generated_at")?;
     assert_eq!(day["data"]["records"][0]["record_id"], task_id);
 
     let human = run_stdout(
@@ -90,7 +96,9 @@ fn records_note_and_reads_day_tree() -> Result<(), Box<dyn std::error::Error>> {
         &["--human", "--tz", "UTC", "day", "--date", "2026-05-13"],
     )?;
     assert!(human.contains("2026-05-13 (UTC) - 1 record"));
-    assert!(human.contains("[completed task] Implemented archive storage"));
+    assert!(
+        human.contains("[completed task] Implemented archive storage (2026-05-13T10:00:00+00:00)")
+    );
     assert!(human.contains("tags: rust, storage"));
 
     let show = run_json(&store, &["show", &task_id])?;
@@ -99,6 +107,9 @@ fn records_note_and_reads_day_tree() -> Result<(), Box<dyn std::error::Error>> {
         show["data"]["record"]["text"],
         "Implemented archive storage"
     );
+    let show_human = run_stdout(&store, &["--human", "show", &task_id])?;
+    assert!(show_human.contains("created: 2026-05-13T10:00:00+00:00"));
+    assert!(show_human.contains("Events"));
     Ok(())
 }
 

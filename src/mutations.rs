@@ -3,6 +3,7 @@ use serde_json::json;
 use crate::cli::args::{
     AmendArgs, NoteArgs, ObjectiveAddArgs, ObjectiveCompleteArgs, RetractArgs, TruncateArgs,
 };
+use crate::cli::human;
 use crate::cli::output::CommandOutcome;
 use crate::domain::event::{ChronicleEvent, EventKind, RecordKind};
 use crate::domain::id::ChronicleId;
@@ -30,12 +31,7 @@ pub fn init(ctx: OperationContext) -> Result<CommandOutcome, SillokError> {
     )
     .with_ids(json!({ "archive_id": archive.archive_id }))
     .with_warnings(ctx.warnings)
-    .with_human(format!(
-        "{} archive {} at {}",
-        if created { "created" } else { "existing" },
-        archive.archive_id,
-        ctx.store.path().display()
-    )))
+    .with_human(human::init(&archive, created, ctx.store.path())))
 }
 
 /// Handles `note`.
@@ -71,9 +67,10 @@ pub fn note(ctx: OperationContext, args: NoteArgs) -> Result<CommandOutcome, Sil
         ));
         let view = ChronicleView::build(archive)?;
         let record = require_output_record(&view, task_id)?;
+        let human = human::record_action("Recorded task", &record);
         Ok(CommandOutcome::new("note", json!({ "record": record }))
             .with_ids(json!({ "task_id": task_id, "day_id": day_id }))
-            .with_human(format!("noted {task_id}")))
+            .with_human(human))
     })?;
     Ok(outcome.with_warnings(warnings))
 }
@@ -110,10 +107,11 @@ pub fn objective_add(
         ));
         let view = ChronicleView::build(archive)?;
         let record = require_output_record(&view, objective_id)?;
+        let human = human::record_action("Added objective", &record);
         Ok(
             CommandOutcome::new("objective", json!({ "record": record }))
                 .with_ids(json!({ "objective_id": objective_id, "day_id": day_id }))
-                .with_human(format!("objective {objective_id} added")),
+                .with_human(human),
         )
     })?;
     Ok(outcome.with_warnings(warnings))
@@ -147,10 +145,11 @@ pub fn objective_complete(
         ));
         let view = ChronicleView::build(archive)?;
         let record = require_output_record(&view, objective_id)?;
+        let human = human::record_action("Completed objective", &record);
         Ok(
             CommandOutcome::new("objective", json!({ "record": record }))
                 .with_ids(json!({ "objective_id": objective_id }))
-                .with_human(format!("objective {objective_id} completed")),
+                .with_human(human),
         )
     })?;
     Ok(outcome.with_warnings(warnings))
@@ -193,9 +192,10 @@ pub fn amend(ctx: OperationContext, args: AmendArgs) -> Result<CommandOutcome, S
         ));
         let view = ChronicleView::build(archive)?;
         let record = require_output_record(&view, record_id)?;
+        let human = human::record_action("Amended record", &record);
         Ok(CommandOutcome::new("amend", json!({ "record": record }))
             .with_ids(json!({ "record_id": record_id }))
-            .with_human(format!("amended {record_id}")))
+            .with_human(human))
     })?;
     Ok(outcome.with_warnings(warnings))
 }
@@ -225,9 +225,10 @@ pub fn retract(ctx: OperationContext, args: RetractArgs) -> Result<CommandOutcom
         ));
         let view = ChronicleView::build(archive)?;
         let record = require_output_record(&view, record_id)?;
+        let human = human::record_action("Retracted record", &record);
         Ok(CommandOutcome::new("retract", json!({ "record": record }))
             .with_ids(json!({ "record_id": record_id }))
-            .with_human(format!("retracted {record_id}")))
+            .with_human(human))
     })?;
     Ok(outcome.with_warnings(warnings))
 }
@@ -246,19 +247,17 @@ pub fn truncate(ctx: OperationContext, args: TruncateArgs) -> Result<CommandOutc
     let archive = ctx
         .store
         .read_or_new(ctx.recorded_at, ctx.actor(), ctx.context())?;
-    let backup_value = backup
-        .as_ref()
-        .map(|path| path.display().to_string())
-        .unwrap_or_else(|| "".to_string());
+    let human = human::truncate(&archive, backup.as_deref(), ctx.store.path());
     Ok(CommandOutcome::new(
         "truncate",
         json!({
             "archive_id": archive.archive_id,
+            "created_at": archive.created_at,
             "backup": backup.as_ref().map(|path| path.display().to_string()),
             "store": ctx.store.path().display().to_string(),
         }),
     )
     .with_ids(json!({ "archive_id": archive.archive_id }))
     .with_warnings(ctx.warnings)
-    .with_human(format!("truncated archive; backup={backup_value}")))
+    .with_human(human))
 }
