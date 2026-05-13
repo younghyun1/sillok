@@ -1,6 +1,6 @@
 [package]
 name = "sillok"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 rust-version = "1.95"
 description = "A structured CLI chronicle for agentic daily work logs."
@@ -15,7 +15,7 @@ include = [
     "Cargo.lock",
     "Cargo.toml",
     "README.md",
-    "docs/plan/**",
+    "docs/**",
     "src/**",
     "tests/**",
 ]

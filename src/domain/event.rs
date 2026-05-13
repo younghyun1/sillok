@@ -16,15 +16,25 @@ pub struct WorkContext {
 }
 
 impl WorkContext {
-    /// Returns a compact context key for indexing.
-    pub fn key(&self) -> String {
+    /// Returns the context key without allocating when possible.
+    pub fn key_ref(&self) -> &str {
         match &self.git_root {
-            Some(value) => value.clone(),
+            Some(value) => value.as_str(),
             None => match &self.cwd {
-                Some(value) => value.clone(),
-                None => "unknown".to_string(),
+                Some(value) => value.as_str(),
+                None => "unknown",
             },
         }
+    }
+
+    /// Returns a compact context key for indexing.
+    pub fn key(&self) -> String {
+        self.key_ref().to_string()
+    }
+
+    /// Returns whether the compact context key contains a fragment.
+    pub fn key_contains(&self, fragment: &str) -> bool {
+        self.key_ref().contains(fragment)
     }
 }
 
@@ -37,6 +47,13 @@ pub enum RecordStatus {
     Blocked,
     Completed,
     Retracted,
+}
+
+impl RecordStatus {
+    /// Returns the number of status variants for small fixed-capacity indexes.
+    pub const fn variant_count() -> usize {
+        5
+    }
 }
 
 /// Record kind in the derived chronicle view.
@@ -81,6 +98,11 @@ impl ChronicleEvent {
     /// Returns the primary record id affected by this event.
     pub fn primary_record_id(&self) -> Option<ChronicleId> {
         self.kind.primary_record_id()
+    }
+
+    /// Returns whether this event references a record id.
+    pub fn references(&self, id: ChronicleId) -> bool {
+        self.kind.references(id)
     }
 }
 
@@ -147,6 +169,33 @@ impl EventKind {
             Self::TaskRetracted { record_id, .. } => Some(*record_id),
             Self::TaskLinked { child_id, .. } => Some(*child_id),
             Self::TaskUnlinked { child_id } => Some(*child_id),
+        }
+    }
+
+    /// Returns whether this event references the supplied record id.
+    pub fn references(&self, id: ChronicleId) -> bool {
+        match self {
+            Self::ArchiveInitialized { archive_id } => *archive_id == id,
+            Self::DayOpened { day_id, .. } => *day_id == id,
+            Self::ObjectiveAdded {
+                objective_id,
+                day_id,
+                ..
+            } => *objective_id == id || *day_id == id,
+            Self::ObjectiveCompleted { objective_id, .. } => *objective_id == id,
+            Self::TaskRecorded {
+                task_id,
+                day_id,
+                parent_id,
+                ..
+            } => *task_id == id || *day_id == id || *parent_id == id,
+            Self::TaskAmended { record_id, .. } => *record_id == id,
+            Self::TaskRetracted { record_id, .. } => *record_id == id,
+            Self::TaskLinked {
+                child_id,
+                parent_id,
+            } => *child_id == id || *parent_id == id,
+            Self::TaskUnlinked { child_id } => *child_id == id,
         }
     }
 

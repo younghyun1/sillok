@@ -5,7 +5,7 @@ use crate::cli::output::CommandOutcome;
 use crate::domain::event::RecordKind;
 use crate::domain::id::ChronicleId;
 use crate::domain::time::Timestamp;
-use crate::domain::view::{ChronicleView, DerivedRecord};
+use crate::domain::view::ChronicleView;
 use crate::error::SillokError;
 use crate::operation::OperationContext;
 
@@ -47,7 +47,7 @@ pub fn day(ctx: OperationContext, args: DayArgs) -> Result<CommandOutcome, Sillo
     match view.day_id(&day_key) {
         Some(day_id) => {
             let tree = view.tree(day_id)?;
-            let records = records_for_day(&view, day_id);
+            let records = view.records_for_day(day_id);
             let objectives = records
                 .iter()
                 .filter(|record| record.kind == RecordKind::Objective)
@@ -245,16 +245,4 @@ fn normalize_optional_tag(value: Option<String>) -> Option<String> {
         }
         None => None,
     }
-}
-
-fn records_for_day(view: &ChronicleView<'_>, day_id: ChronicleId) -> Vec<DerivedRecord> {
-    let mut records = view
-        .records
-        .values()
-        .filter(|record| record.day_id == day_id && record.record_id != day_id)
-        .filter(|record| record.status != crate::domain::event::RecordStatus::Retracted)
-        .cloned()
-        .collect::<Vec<_>>();
-    records.sort_by_key(|record| (record.created_at, record.record_id));
-    records
 }
