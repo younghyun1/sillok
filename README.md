@@ -11,8 +11,8 @@ objective, and in what working context.
 ## Status
 
 Sillok is an early local-first CLI. The command interface is intended to be
-stable enough for agent harnesses, but the serialized archive format is private
-and may change.
+stable enough for agent harnesses. The live store is a private Turso/SQLite
+database and may gain new datashape versions over time.
 
 ## Install
 
@@ -36,28 +36,33 @@ sillok --help
 
 ## Storage
 
-By default, Sillok stores one user-global archive at:
+By default, Sillok stores one user-global Turso/SQLite database at:
 
 ```text
-$XDG_DATA_HOME/sillok/sillok.slk.zst
+$XDG_DATA_HOME/sillok/sillok.db
 ```
 
 If `XDG_DATA_HOME` is unset, it falls back to:
 
 ```text
-~/.local/share/sillok/sillok.slk.zst
+~/.local/share/sillok/sillok.db
 ```
 
 Override the store with either:
 
 ```bash
-sillok --store /path/to/sillok.slk.zst day
-SILLOK_STORE=/path/to/sillok.slk.zst sillok day
+sillok --store /path/to/sillok.db day
+SILLOK_STORE=/path/to/sillok.db sillok day
 ```
 
-The current implementation persists a compressed private archive. On every
-mutation, it loads the archive, builds indexed in-memory state, validates the
-change, appends events, and atomically rewrites the archive.
+The v2 store keeps append-only events plus indexed current projections in the
+database. Normal mutations insert a new event and update affected projection
+rows instead of loading and rewriting the whole chronicle.
+
+Legacy v1 stores used a compressed private archive at `sillok.slk.zst`. Use
+`sillok migrate --store /path/to/sillok.slk.zst --target /path/to/sillok.db --yes`
+to create a v2 database. Migration always validates the legacy archive and
+creates a timestamped backup before activating the target.
 
 ## Output
 
@@ -87,7 +92,7 @@ sillok --human day
 Global options:
 
 ```bash
-sillok --store /path/to/sillok.slk.zst <command>
+sillok --store /path/to/sillok.db <command>
 sillok --human <command>
 sillok --json <command>
 sillok --at 2026-05-13T10:00:00Z <command>
@@ -154,6 +159,13 @@ sillok export json
 sillok export json --from 2026-05-13T00:00:00 --to 2026-05-13T23:59:59
 ```
 
+Migrate a legacy v1 archive:
+
+```bash
+sillok --store /path/to/sillok.slk.zst migrate --dry-run
+sillok --store /path/to/sillok.slk.zst migrate --target /path/to/sillok.db --yes
+```
+
 Reset the archive only when an operator explicitly asks for a full reset. This
 creates a timestamped backup first:
 
@@ -216,8 +228,8 @@ Project constraints:
 - Keep modules under 300 lines where practical.
 - Keep folder `mod.rs` files to module declarations only.
 - Prefer explicit error handling and structured tracing.
-- Do not treat the serialized archive as a public standard; optimize the
-  in-memory representation and CLI behavior first.
+- Do not treat the live database or legacy archive serialization as a public
+  standard; use CLI export/migration commands for compatibility.
 
 ## Design Notes
 

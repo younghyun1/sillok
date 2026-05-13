@@ -10,7 +10,17 @@ pub fn run_from_env() -> i32 {
     let cli = Cli::parse();
     let command = cli.command.name();
     let human = cli.human;
-    match execute(cli) {
+    let runtime = match tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+    {
+        Ok(value) => value,
+        Err(error) => {
+            eprintln!("{error}");
+            return 1;
+        }
+    };
+    match runtime.block_on(execute(cli)) {
         Ok(outcome) => match print_success(outcome, human) {
             Ok(()) => 0,
             Err(error) => {

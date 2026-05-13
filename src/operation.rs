@@ -5,13 +5,13 @@ use crate::domain::event::WorkContext;
 use crate::domain::text::{EntryText, PurposeText, ReasonText, TagText};
 use crate::domain::time::{Timestamp, ZoneChoice};
 use crate::error::SillokError;
+use crate::storage::handle::StoreHandle;
 use crate::storage::path::default_store_path;
-use crate::storage::store::ArchiveStore;
 
 /// Runtime values shared by command handlers.
 #[derive(Debug, Clone)]
 pub struct OperationContext {
-    pub store: ArchiveStore,
+    pub store: StoreHandle,
     pub recorded_at: Timestamp,
     pub event_at: Timestamp,
     pub actor: String,
@@ -43,7 +43,7 @@ impl OperationContext {
             None => default_store_path()?,
         };
         Ok(Self {
-            store: ArchiveStore::new(path),
+            store: StoreHandle::new(path),
             recorded_at,
             event_at,
             actor,

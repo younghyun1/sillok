@@ -8,11 +8,21 @@ use crate::domain::view::{DerivedRecord, RecordTreeNode};
 
 /// Formats `init` output.
 pub fn init(archive: &Archive, created: bool, store: &Path) -> String {
+    store_init(archive.archive_id, archive.created_at, created, store)
+}
+
+/// Formats v2 store `init` output.
+pub fn store_init(
+    archive_id: ChronicleId,
+    created_at: Timestamp,
+    created: bool,
+    store: &Path,
+) -> String {
     let state = if created { "Created" } else { "Existing" };
     format!(
         "{state} archive\nid: {}\ncreated: {}\nstore: {}",
-        archive.archive_id,
-        format_time(archive.created_at),
+        archive_id,
+        format_time(created_at),
         store.display()
     )
 }
@@ -103,12 +113,31 @@ pub fn doctor_valid(
     store: &Path,
     checked_at: Timestamp,
 ) -> String {
+    store_doctor_valid(
+        archive.archive_id,
+        archive.created_at,
+        archive.events.len(),
+        record_count,
+        store,
+        checked_at,
+    )
+}
+
+/// Formats successful v2 `doctor` output.
+pub fn store_doctor_valid(
+    archive_id: ChronicleId,
+    created_at: Timestamp,
+    event_count: usize,
+    record_count: usize,
+    store: &Path,
+    checked_at: Timestamp,
+) -> String {
     format!(
         "Archive valid\nchecked: {}\narchive: {}\ncreated: {}\nevents: {}\nrecords: {}\nstore: {}",
         format_time(checked_at),
-        archive.archive_id,
-        format_time(archive.created_at),
-        archive.events.len(),
+        archive_id,
+        format_time(created_at),
+        event_count,
         record_count,
         store.display()
     )
@@ -138,16 +167,54 @@ pub fn doctor_invalid(
 
 /// Formats `truncate` output.
 pub fn truncate(archive: &Archive, backup: Option<&Path>, store: &Path) -> String {
+    store_truncate(archive.archive_id, archive.created_at, backup, store)
+}
+
+/// Formats v2 store `truncate` output.
+pub fn store_truncate(
+    archive_id: ChronicleId,
+    created_at: Timestamp,
+    backup: Option<&Path>,
+    store: &Path,
+) -> String {
     let backup_value = match backup {
         Some(path) => path.display().to_string(),
         None => "none".to_string(),
     };
     format!(
         "Truncated archive\narchive: {}\ncreated: {}\nbackup: {}\nstore: {}",
-        archive.archive_id,
-        format_time(archive.created_at),
+        archive_id,
+        format_time(created_at),
         backup_value,
         store.display()
+    )
+}
+
+/// Formats successful `migrate` output.
+pub fn migrate(
+    source: &Path,
+    target: &Path,
+    backup: Option<&Path>,
+    event_count: usize,
+    record_count: usize,
+    dry_run: bool,
+) -> String {
+    let state = if dry_run {
+        "Migration dry run"
+    } else {
+        "Migrated archive"
+    };
+    let backup_value = match backup {
+        Some(path) => path.display().to_string(),
+        None => "none".to_string(),
+    };
+    format!(
+        "{state}\nsource: {}\ntarget: {}\nbackup: {}\nevents: {}\nrecords: {}",
+        source.display(),
+        target.display(),
+        backup_value,
+        event_count,
+        record_count
     )
 }
 

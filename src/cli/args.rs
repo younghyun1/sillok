@@ -57,6 +57,8 @@ pub enum Command {
     Doctor,
     /// Export current derived data.
     Export(ExportArgs),
+    /// Migrate a legacy v1 archive into the v2 Turso store.
+    Migrate(MigrateArgs),
     /// Backup and reset the whole archive.
     Truncate(TruncateArgs),
 }
@@ -76,6 +78,7 @@ impl Command {
             Self::Tree(_) => "tree",
             Self::Doctor => "doctor",
             Self::Export(_) => "export",
+            Self::Migrate(_) => "migrate",
             Self::Truncate(_) => "truncate",
         }
     }
@@ -204,6 +207,20 @@ pub struct ExportJsonArgs {
     pub from: Option<String>,
     #[arg(long)]
     pub to: Option<String>,
+}
+
+/// Args for `migrate`.
+#[derive(Debug, Args)]
+pub struct MigrateArgs {
+    /// Target v2 database path. Defaults beside the source archive.
+    #[arg(long)]
+    pub target: Option<PathBuf>,
+    /// Validate the source and report the migration plan without writing.
+    #[arg(long)]
+    pub dry_run: bool,
+    /// Required confirmation before writing the v2 database.
+    #[arg(long)]
+    pub yes: bool,
 }
 
 /// Args for `truncate`.

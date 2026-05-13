@@ -2,6 +2,10 @@ use std::path::{Path, PathBuf};
 
 use assert_cmd::Command;
 use serde_json::Value;
+use sillok::domain::event::{ChronicleEvent, EventKind, RecordStatus, WorkContext};
+use sillok::domain::id::ChronicleId;
+use sillok::domain::time::{DayKey, Timestamp};
+use sillok::storage::store::ArchiveStore;
 
 fn boxed_error(message: String) -> Box<dyn std::error::Error> {
     Box::new(std::io::Error::other(message))
@@ -12,7 +16,7 @@ fn temp_store() -> Result<(tempfile::TempDir, PathBuf), Box<dyn std::error::Erro
         Ok(value) => value,
         Err(error) => return Err(Box::new(error)),
     };
-    let store = dir.path().join("sillok.slk.zst");
+    let store = dir.path().join("sillok.db");
     Ok((dir, store))
 }
 
@@ -60,6 +64,16 @@ fn string_at<'a>(value: &'a Value, path: &str) -> Result<&'a str, Box<dyn std::e
             None => Err(boxed_error(format!("json path `{path}` is not a string"))),
         },
         None => Err(boxed_error(format!("json path `{path}` missing"))),
+    }
+}
+
+fn legacy_context() -> WorkContext {
+    WorkContext {
+        cwd: Some("/tmp/sillok-legacy-test".to_string()),
+        git_root: None,
+        git_branch: None,
+        git_head: None,
+        git_remote: None,
     }
 }
 
@@ -139,5 +153,65 @@ fn completes_objective_and_truncates_with_backup() -> Result<(), Box<dyn std::er
 
     let day = run_json(&store, &["--tz", "UTC", "day", "--date", "2026-05-13"])?;
     assert_eq!(day["data"]["records"].as_array().map(Vec::len), Some(0));
+    Ok(())
+}
+
+#[test]
+fn migrates_legacy_archive_to_turso_store() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = match tempfile::tempdir() {
+        Ok(value) => value,
+        Err(error) => return Err(Box::new(error)),
+    };
+    let legacy = dir.path().join("sillok.slk.zst");
+    let target = dir.path().join("sillok.db");
+    let archive_store = ArchiveStore::new(legacy.clone());
+    let day_id = ChronicleId::new_v7();
+    let task_id = ChronicleId::new_v7();
+    archive_store.mutate(
+        Timestamp::from_millis(1),
+        "test".to_string(),
+        legacy_context(),
+        |archive| {
+            archive.push(ChronicleEvent::new(
+                Timestamp::from_millis(2),
+                Timestamp::from_millis(2),
+                "test".to_string(),
+                legacy_context(),
+                EventKind::DayOpened {
+                    day_id,
+                    day_key: DayKey {
+                        date: "2026-05-13".to_string(),
+                        timezone: "UTC".to_string(),
+                    },
+                },
+            ));
+            archive.push(ChronicleEvent::new(
+                Timestamp::from_millis(3),
+                Timestamp::from_millis(3),
+                "test".to_string(),
+                legacy_context(),
+                EventKind::TaskRecorded {
+                    task_id,
+                    day_id,
+                    parent_id: day_id,
+                    text: "migrate this".to_string(),
+                    purpose: None,
+                    tags: vec!["migration".to_string()],
+                    status: RecordStatus::Completed,
+                },
+            ));
+            Ok(())
+        },
+    )?;
+
+    let target_arg = target.display().to_string();
+    let migrated = run_json(&legacy, &["migrate", "--target", &target_arg, "--yes"])?;
+    assert_eq!(migrated["ok"], true);
+    assert_eq!(migrated["data"]["store_datashape_version"], 2);
+    assert!(target.exists());
+
+    let day = run_json(&target, &["--tz", "UTC", "day", "--date", "2026-05-13"])?;
+    assert_eq!(day["data"]["records"][0]["record_id"], task_id.to_string());
+    assert_eq!(day["data"]["records"][0]["text"], "migrate this");
     Ok(())
 }

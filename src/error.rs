@@ -65,3 +65,9 @@ impl From<bitcode::Error> for SillokError {
         Self::new("archive_decode_error", value.to_string())
     }
 }
+
+impl From<turso::Error> for SillokError {
+    fn from(value: turso::Error) -> Self {
+        Self::new("store_error", value.to_string())
+    }
+}

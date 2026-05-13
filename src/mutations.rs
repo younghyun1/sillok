@@ -5,158 +5,137 @@ use crate::cli::args::{
 };
 use crate::cli::human;
 use crate::cli::output::CommandOutcome;
-use crate::domain::event::{ChronicleEvent, EventKind, RecordKind};
+use crate::domain::event::RecordKind;
 use crate::domain::id::ChronicleId;
-use crate::domain::view::ChronicleView;
 use crate::error::SillokError;
-use crate::mutation_helpers::{
-    day_for_key, day_opened_event, parent_target, parse_optional_id, require_active_record,
-    require_output_record,
-};
+use crate::mutation_helpers::parse_optional_id;
 use crate::operation::{OperationContext, clean_entry, clean_purpose, clean_reason, clean_tags};
+use crate::storage::sql::store::{
+    AmendInput, CompleteObjectiveInput, ObjectiveInput, RetractInput, TaskInput,
+};
 
 /// Handles `init`.
-pub fn init(ctx: OperationContext) -> Result<CommandOutcome, SillokError> {
-    let (archive, created) = ctx
-        .store
-        .init(ctx.recorded_at, ctx.actor(), ctx.context())?;
+pub async fn init(ctx: OperationContext) -> Result<CommandOutcome, SillokError> {
+    let store = ctx.store.require_sql_mutation()?;
+    let (info, created) = store
+        .init(ctx.recorded_at, ctx.actor(), ctx.context())
+        .await?;
     Ok(CommandOutcome::new(
         "init",
         json!({
             "created": created,
             "store": ctx.store.path().display().to_string(),
-            "archive_id": archive.archive_id,
-            "created_at": archive.created_at,
+            "archive_id": info.archive_id,
+            "created_at": info.created_at,
+            "store_datashape_version": crate::storage::sql::schema::STORE_DATASHAPE_VERSION,
         }),
     )
-    .with_ids(json!({ "archive_id": archive.archive_id }))
+    .with_ids(json!({ "archive_id": info.archive_id }))
     .with_warnings(ctx.warnings)
-    .with_human(human::init(&archive, created, ctx.store.path())))
+    .with_human(human::store_init(
+        info.archive_id,
+        info.created_at,
+        created,
+        ctx.store.path(),
+    )))
 }
 
 /// Handles `note`.
-pub fn note(ctx: OperationContext, args: NoteArgs) -> Result<CommandOutcome, SillokError> {
+pub async fn note(ctx: OperationContext, args: NoteArgs) -> Result<CommandOutcome, SillokError> {
     let text = clean_entry(args.text)?;
     let purpose = clean_purpose(args.purpose)?;
     let tags = clean_tags(args.tags)?;
     let parent = parse_optional_id(args.parent)?;
-    let store = ctx.store.clone();
+    let day_key = ctx.zone.day_key(ctx.event_at)?;
+    let store = ctx.store.require_sql_mutation()?;
     let warnings = ctx.warnings.clone();
-    let outcome = store.mutate(ctx.recorded_at, ctx.actor(), ctx.context(), |archive| {
-        let view = ChronicleView::build(archive)?;
-        let (day_id, parent_id, day_to_open) = parent_target(&ctx, &view, parent)?;
-        drop(view);
-        if let Some((new_day_id, day_key)) = day_to_open {
-            archive.push(day_opened_event(&ctx, new_day_id, day_key));
-        }
-        let task_id = ChronicleId::new_v7();
-        archive.push(ChronicleEvent::new(
-            ctx.event_at,
-            ctx.recorded_at,
-            ctx.actor(),
-            ctx.context(),
-            EventKind::TaskRecorded {
-                task_id,
-                day_id,
-                parent_id,
-                text: text.clone(),
-                purpose: purpose.clone(),
-                tags: tags.clone(),
-                status: args.status,
-            },
-        ));
-        let view = ChronicleView::build(archive)?;
-        let record = require_output_record(&view, task_id)?;
-        let human = human::record_action("Recorded task", &record);
-        Ok(CommandOutcome::new("note", json!({ "record": record }))
-            .with_ids(json!({ "task_id": task_id, "day_id": day_id }))
-            .with_human(human))
-    })?;
-    Ok(outcome.with_warnings(warnings))
+    let record = store
+        .record_task(TaskInput {
+            recorded_at: ctx.recorded_at,
+            event_at: ctx.event_at,
+            actor: ctx.actor(),
+            context: ctx.context(),
+            day_key,
+            parent,
+            text,
+            purpose,
+            tags,
+            status: args.status,
+        })
+        .await?;
+    let human = human::record_action("Recorded task", &record);
+    Ok(CommandOutcome::new("note", json!({ "record": record }))
+        .with_ids(json!({ "task_id": record.record_id, "day_id": record.day_id }))
+        .with_warnings(warnings)
+        .with_human(human))
 }
 
 /// Handles `objective add`.
-pub fn objective_add(
+pub async fn objective_add(
     ctx: OperationContext,
     args: ObjectiveAddArgs,
 ) -> Result<CommandOutcome, SillokError> {
     let text = clean_entry(args.text)?;
     let tags = clean_tags(args.tags)?;
-    let store = ctx.store.clone();
+    let store = ctx.store.require_sql_mutation()?;
     let warnings = ctx.warnings.clone();
     let day_key = ctx.zone.day_key(ctx.event_at)?;
-    let outcome = store.mutate(ctx.recorded_at, ctx.actor(), ctx.context(), |archive| {
-        let view = ChronicleView::build(archive)?;
-        let (day_id, day_to_open) = day_for_key(&view, day_key.clone());
-        drop(view);
-        if let Some((new_day_id, key)) = day_to_open {
-            archive.push(day_opened_event(&ctx, new_day_id, key));
-        }
-        let objective_id = ChronicleId::new_v7();
-        archive.push(ChronicleEvent::new(
-            ctx.event_at,
-            ctx.recorded_at,
-            ctx.actor(),
-            ctx.context(),
-            EventKind::ObjectiveAdded {
-                objective_id,
-                day_id,
-                text: text.clone(),
-                tags: tags.clone(),
-            },
-        ));
-        let view = ChronicleView::build(archive)?;
-        let record = require_output_record(&view, objective_id)?;
-        let human = human::record_action("Added objective", &record);
-        Ok(
-            CommandOutcome::new("objective", json!({ "record": record }))
-                .with_ids(json!({ "objective_id": objective_id, "day_id": day_id }))
-                .with_human(human),
-        )
-    })?;
-    Ok(outcome.with_warnings(warnings))
+    let record = store
+        .add_objective(ObjectiveInput {
+            recorded_at: ctx.recorded_at,
+            event_at: ctx.event_at,
+            actor: ctx.actor(),
+            context: ctx.context(),
+            day_key,
+            text,
+            tags,
+        })
+        .await?;
+    let human = human::record_action("Added objective", &record);
+    Ok(
+        CommandOutcome::new("objective", json!({ "record": record }))
+            .with_ids(json!({ "objective_id": record.record_id, "day_id": record.day_id }))
+            .with_warnings(warnings)
+            .with_human(human),
+    )
 }
 
 /// Handles `objective complete`.
-pub fn objective_complete(
+pub async fn objective_complete(
     ctx: OperationContext,
     args: ObjectiveCompleteArgs,
 ) -> Result<CommandOutcome, SillokError> {
     let objective_id = ChronicleId::parse(&args.id)?;
     let note = clean_purpose(args.note)?;
-    let store = ctx.store.clone();
+    let store = ctx.store.require_sql_mutation()?;
     let warnings = ctx.warnings.clone();
-    let outcome = store.mutate(ctx.recorded_at, ctx.actor(), ctx.context(), |archive| {
-        let view = ChronicleView::build(archive)?;
-        let record = require_active_record(&view, objective_id)?;
-        if record.kind != RecordKind::Objective {
-            return Err(SillokError::new(
-                "invalid_record_kind",
-                format!("record `{objective_id}` is not an objective"),
-            ));
-        }
-        drop(view);
-        archive.push(ChronicleEvent::new(
-            ctx.event_at,
-            ctx.recorded_at,
-            ctx.actor(),
-            ctx.context(),
-            EventKind::ObjectiveCompleted { objective_id, note },
+    let record = store
+        .complete_objective(CompleteObjectiveInput {
+            recorded_at: ctx.recorded_at,
+            event_at: ctx.event_at,
+            actor: ctx.actor(),
+            context: ctx.context(),
+            objective_id,
+            note,
+        })
+        .await?;
+    if record.kind != RecordKind::Objective {
+        return Err(SillokError::new(
+            "invalid_record_kind",
+            format!("record `{objective_id}` is not an objective"),
         ));
-        let view = ChronicleView::build(archive)?;
-        let record = require_output_record(&view, objective_id)?;
-        let human = human::record_action("Completed objective", &record);
-        Ok(
-            CommandOutcome::new("objective", json!({ "record": record }))
-                .with_ids(json!({ "objective_id": objective_id }))
-                .with_human(human),
-        )
-    })?;
-    Ok(outcome.with_warnings(warnings))
+    }
+    let human = human::record_action("Completed objective", &record);
+    Ok(
+        CommandOutcome::new("objective", json!({ "record": record }))
+            .with_ids(json!({ "objective_id": objective_id }))
+            .with_warnings(warnings)
+            .with_human(human),
+    )
 }
 
 /// Handles `amend`.
-pub fn amend(ctx: OperationContext, args: AmendArgs) -> Result<CommandOutcome, SillokError> {
+pub async fn amend(ctx: OperationContext, args: AmendArgs) -> Result<CommandOutcome, SillokError> {
     let record_id = ChronicleId::parse(&args.id)?;
     let text = match args.text {
         Some(value) => Some(clean_entry(value)?),
@@ -171,93 +150,86 @@ pub fn amend(ctx: OperationContext, args: AmendArgs) -> Result<CommandOutcome, S
             "amend requires at least one changed field",
         ));
     }
-    let store = ctx.store.clone();
+    let store = ctx.store.require_sql_mutation()?;
     let warnings = ctx.warnings.clone();
-    let outcome = store.mutate(ctx.recorded_at, ctx.actor(), ctx.context(), |archive| {
-        let view = ChronicleView::build(archive)?;
-        require_active_record(&view, record_id)?;
-        drop(view);
-        archive.push(ChronicleEvent::new(
-            ctx.event_at,
-            ctx.recorded_at,
-            ctx.actor(),
-            ctx.context(),
-            EventKind::TaskAmended {
-                record_id,
-                text: text.clone(),
-                status: args.status,
-                purpose: purpose.clone(),
-                tags: tags_update.clone(),
-            },
-        ));
-        let view = ChronicleView::build(archive)?;
-        let record = require_output_record(&view, record_id)?;
-        let human = human::record_action("Amended record", &record);
-        Ok(CommandOutcome::new("amend", json!({ "record": record }))
-            .with_ids(json!({ "record_id": record_id }))
-            .with_human(human))
-    })?;
-    Ok(outcome.with_warnings(warnings))
+    let record = store
+        .amend_record(AmendInput {
+            recorded_at: ctx.recorded_at,
+            event_at: ctx.event_at,
+            actor: ctx.actor(),
+            context: ctx.context(),
+            record_id,
+            text,
+            status: args.status,
+            purpose,
+            tags: tags_update,
+        })
+        .await?;
+    let human = human::record_action("Amended record", &record);
+    Ok(CommandOutcome::new("amend", json!({ "record": record }))
+        .with_ids(json!({ "record_id": record_id }))
+        .with_warnings(warnings)
+        .with_human(human))
 }
 
 /// Handles `retract`.
-pub fn retract(ctx: OperationContext, args: RetractArgs) -> Result<CommandOutcome, SillokError> {
+pub async fn retract(
+    ctx: OperationContext,
+    args: RetractArgs,
+) -> Result<CommandOutcome, SillokError> {
     let record_id = ChronicleId::parse(&args.id)?;
     let reason = clean_reason(args.reason)?;
-    let store = ctx.store.clone();
+    let store = ctx.store.require_sql_mutation()?;
     let warnings = ctx.warnings.clone();
-    let outcome = store.mutate(ctx.recorded_at, ctx.actor(), ctx.context(), |archive| {
-        let view = ChronicleView::build(archive)?;
-        let record = require_active_record(&view, record_id)?;
-        if record.kind == RecordKind::Day {
-            return Err(SillokError::new(
-                "invalid_operation",
-                "day records cannot be retracted; use truncate for a full reset",
-            ));
-        }
-        drop(view);
-        archive.push(ChronicleEvent::new(
-            ctx.event_at,
-            ctx.recorded_at,
-            ctx.actor(),
-            ctx.context(),
-            EventKind::TaskRetracted { record_id, reason },
-        ));
-        let view = ChronicleView::build(archive)?;
-        let record = require_output_record(&view, record_id)?;
-        let human = human::record_action("Retracted record", &record);
-        Ok(CommandOutcome::new("retract", json!({ "record": record }))
-            .with_ids(json!({ "record_id": record_id }))
-            .with_human(human))
-    })?;
-    Ok(outcome.with_warnings(warnings))
+    let record = store
+        .retract_record(RetractInput {
+            recorded_at: ctx.recorded_at,
+            event_at: ctx.event_at,
+            actor: ctx.actor(),
+            context: ctx.context(),
+            record_id,
+            reason,
+        })
+        .await?;
+    let human = human::record_action("Retracted record", &record);
+    Ok(CommandOutcome::new("retract", json!({ "record": record }))
+        .with_ids(json!({ "record_id": record_id }))
+        .with_warnings(warnings)
+        .with_human(human))
 }
 
 /// Handles `truncate`.
-pub fn truncate(ctx: OperationContext, args: TruncateArgs) -> Result<CommandOutcome, SillokError> {
+pub async fn truncate(
+    ctx: OperationContext,
+    args: TruncateArgs,
+) -> Result<CommandOutcome, SillokError> {
     if !args.yes {
         return Err(SillokError::new(
             "confirmation_required",
             "truncate requires --yes",
         ));
     }
-    let backup = ctx
-        .store
-        .truncate(ctx.recorded_at, ctx.actor(), ctx.context())?;
-    let archive = ctx
-        .store
-        .read_or_new(ctx.recorded_at, ctx.actor(), ctx.context())?;
-    let human = human::truncate(&archive, backup.as_deref(), ctx.store.path());
+    let store = ctx.store.require_sql_mutation()?;
+    let (info, backup) = store
+        .truncate(ctx.recorded_at, ctx.actor(), ctx.context())
+        .await?;
+    let human = human::store_truncate(
+        info.archive_id,
+        info.created_at,
+        backup.as_deref(),
+        ctx.store.path(),
+    );
     Ok(CommandOutcome::new(
         "truncate",
         json!({
-            "archive_id": archive.archive_id,
-            "created_at": archive.created_at,
+            "archive_id": info.archive_id,
+            "created_at": info.created_at,
             "backup": backup.as_ref().map(|path| path.display().to_string()),
             "store": ctx.store.path().display().to_string(),
+            "store_datashape_version": crate::storage::sql::schema::STORE_DATASHAPE_VERSION,
         }),
     )
-    .with_ids(json!({ "archive_id": archive.archive_id }))
+    .with_ids(json!({ "archive_id": info.archive_id }))
     .with_warnings(ctx.warnings)
     .with_human(human))
 }

@@ -7,6 +7,7 @@ pub mod commands;
 pub mod context;
 pub mod domain;
 pub mod error;
+pub mod migration;
 pub mod mutation_helpers;
 pub mod mutations;
 pub mod operation;

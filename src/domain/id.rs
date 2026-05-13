@@ -18,6 +18,25 @@ impl ChronicleId {
         Self(*Uuid::now_v7().as_bytes())
     }
 
+    /// Builds an id from raw UUID bytes.
+    pub fn from_bytes(bytes: [u8; 16]) -> Self {
+        Self(bytes)
+    }
+
+    /// Parses raw UUID bytes into a chronicle id.
+    pub fn from_slice(bytes: &[u8]) -> Result<Self, SillokError> {
+        let parsed: [u8; 16] = match bytes.try_into() {
+            Ok(value) => value,
+            Err(_) => {
+                return Err(SillokError::new(
+                    "invalid_id",
+                    format!("expected 16 UUID bytes, got {}", bytes.len()),
+                ));
+            }
+        };
+        Ok(Self(parsed))
+    }
+
     /// Parses a UUID string into a chronicle id.
     pub fn parse(input: &str) -> Result<Self, SillokError> {
         match Uuid::from_str(input) {
@@ -32,6 +51,16 @@ impl ChronicleId {
     /// Converts the id into a uuid crate value.
     pub fn as_uuid(&self) -> Uuid {
         Uuid::from_bytes(self.0)
+    }
+
+    /// Returns raw UUID bytes for compact database storage.
+    pub fn as_bytes(&self) -> [u8; 16] {
+        self.0
+    }
+
+    /// Returns raw UUID bytes as an owned vector for SQL parameters.
+    pub fn to_vec(&self) -> Vec<u8> {
+        self.0.to_vec()
     }
 }
 
