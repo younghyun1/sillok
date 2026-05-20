@@ -64,6 +64,11 @@ Legacy v1 stores used a compressed private archive at `sillok.slk.zst`. Use
 to create a v2 database. Migration always validates the legacy archive and
 creates a timestamped backup before activating the target.
 
+Git sync is archive-based, not database-based. The configured remote stores one
+`bitcode` + zstd artifact, while every device keeps its own local SQLite/Turso
+projection database. Sync config is stored beside the selected store at
+`<store>.sync.json`.
+
 ## Output
 
 JSON is the default output and is intended for agents:
@@ -79,13 +84,45 @@ JSON is the default output and is intended for agents:
 }
 ```
 
-JSON records include stable RFC3339 `created_at` and `updated_at` fields. Use
-`--human` for interactive summaries with local-device timestamps rendered as
-readable wall-clock time:
+Failures are also JSON by default:
+
+```json
+{
+  "ok": false,
+  "command": "sync",
+  "generated_at": "2026-05-13T10:00:00+00:00",
+  "error": {
+    "code": "sync_remote_missing",
+    "message": "sync remote is not configured"
+  }
+}
+```
+
+JSON records include stable RFC3339 `created_at` and `updated_at` fields. Most
+success responses include `ids`, `data`, and `warnings`. Use `--human` for
+interactive summaries with local-device timestamps rendered as readable
+wall-clock time:
 
 ```bash
 sillok --human day
 ```
+
+## Functionality
+
+Sillok supports:
+
+- Local-first event logging into a SQLite/Turso projection store.
+- Daily task notes with status, tags, purpose text, and parent links.
+- Day objectives that can be created and completed with notes.
+- Amendments and retractions that preserve event history.
+- Day summaries, record history lookup, filtered queries, and task trees.
+- Archive integrity validation.
+- JSON export of current visible records.
+- Legacy v1 archive migration into the v2 store.
+- Explicit destructive truncation with timestamped backup.
+- Git-backed sync of the authoritative event stream as one compressed artifact.
+- Backfilled timestamps and timezone-controlled day attribution.
+- Runtime work-context capture including cwd and Git metadata when available.
 
 ## Command Reference
 
@@ -98,6 +135,18 @@ sillok --json <command>
 sillok --at 2026-05-13T10:00:00Z <command>
 sillok --tz America/Denver <command>
 ```
+
+Global option details:
+
+- `--store`: use a specific store path; defaults to `SILLOK_STORE` or XDG data
+  storage.
+- `--human`: print readable summaries instead of JSON when supported.
+- `--json`: explicit no-op because JSON is already the default.
+- `--at`: assign the event timestamp. Accepts RFC3339 or naive
+  `YYYY-MM-DDTHH:MM:SS`.
+- `--tz`: timezone for local day attribution and naive `--at` parsing.
+- `SILLOK_ACTOR`: optional actor label recorded on new events; defaults to
+  `agent`.
 
 Initialize the archive if absent:
 
@@ -114,6 +163,14 @@ sillok note "Investigating archive compaction" --status active --purpose "Reduce
 sillok note "Split reducer from view indexing" --parent <record_id> --tags rust,indexing
 ```
 
+`note` creates a task event. Without `--parent`, Sillok opens or reuses the day
+record for the event timestamp and links the task under that day. With
+`--parent`, the task is linked under an existing active record.
+
+The status vocabulary is `open`, `active`, `blocked`, `completed`, and
+`retracted`. Prefer `sillok retract` when hiding a record so the retraction
+reason is preserved.
+
 Manage day objectives:
 
 ```bash
@@ -121,6 +178,9 @@ sillok objective add "Finish archive indexing"
 sillok objective add "Finish archive indexing" --tags rust,storage
 sillok objective complete <objective_id> --note "All scoped work is complete"
 ```
+
+Objectives are day-scoped records. Completing an objective changes its derived
+status to `completed`; an optional completion note is stored on the record.
 
 Amend current derived state:
 
@@ -131,11 +191,17 @@ sillok amend <record_id> --purpose "Clarify why this work mattered"
 sillok amend <record_id> --tags rust,indexing
 ```
 
+`amend` records a new event and updates only the supplied fields in the current
+projection. It requires at least one changed field.
+
 Retract a task or objective from current views:
 
 ```bash
 sillok retract <record_id> --reason "Recorded against the wrong objective"
 ```
+
+Retraction hides a task or objective from normal current views while preserving
+the underlying event history. Day records cannot be retracted.
 
 Read records:
 
@@ -151,6 +217,16 @@ sillok tree --root <record_id>
 sillok tree --date 2026-05-13
 ```
 
+Read command behavior:
+
+- `show` returns one current record plus every event that references it.
+- `day` returns the selected day's tree, objectives, and visible non-day
+  records. Omit `--date` to use the current day in the selected timezone.
+- `query` returns visible current records created in an inclusive time range.
+  Filter by `--context`, `--tag`, or `--status`.
+- `tree` renders the visible record tree rooted at `--root`, or at the selected
+  day when `--date` is supplied.
+
 Validate and export:
 
 ```bash
@@ -158,6 +234,11 @@ sillok doctor
 sillok export json
 sillok export json --from 2026-05-13T00:00:00 --to 2026-05-13T23:59:59
 ```
+
+`doctor` validates SQLite integrity and replays persisted events to confirm the
+derived projection. `export json` returns visible current records; with
+`--from` and `--to`, export is limited to records created in that inclusive
+range.
 
 Configure and run Git-backed event archive sync. Sync stores one
 `bitcode` + zstd level 22 archive artifact in the configured Git remote; the
@@ -172,12 +253,36 @@ sillok sync push
 sillok sync run
 ```
 
+Sync command behavior:
+
+- `sync remote set <URL>` writes `<store>.sync.json`; defaults are branch
+  `main` and artifact path `sillok.slk.zst`.
+- `sync remote show` prints the configured URL, branch, artifact path, and
+  sidecar path.
+- `sync pull` reads the remote artifact, merges matching archives by event id,
+  and rebuilds the local database when local state is missing, behind, or
+  diverged.
+- `sync push` fetches the remote artifact, merges matching archives by event
+  id, rebuilds local state if needed, then writes the merged artifact to the
+  configured remote.
+- `sync run` performs bidirectional merge, validates the merged archive,
+  rebuilds the local database with a backup if needed, then pushes.
+
+Archives with the same `archive_id` are merged by `event_id`. Different
+non-empty archive IDs fail with `sync_archive_mismatch` and do not replace local
+or remote data. Git authentication is delegated to the user's existing `git`
+setup.
+
 Migrate a legacy v1 archive:
 
 ```bash
 sillok --store /path/to/sillok.slk.zst migrate --dry-run
 sillok --store /path/to/sillok.slk.zst migrate --target /path/to/sillok.db --yes
 ```
+
+`migrate --dry-run` validates the source archive and reports the migration plan.
+Writing a v2 target requires `--yes`. If `--target` is omitted, Sillok writes
+`sillok.db` beside the legacy archive.
 
 Reset the archive only when an operator explicitly asks for a full reset. This
 creates a timestamped backup first:
@@ -186,12 +291,18 @@ creates a timestamped backup first:
 sillok truncate --yes
 ```
 
+`truncate` is destructive and requires `--yes`. It backs up the current v2
+database, removes it, then initializes a fresh archive.
+
 Backfill with explicit timestamps and timezone attribution:
 
 ```bash
 sillok --tz Asia/Seoul --at 2026-05-13T21:30:00 note "Backfilled a late task"
 sillok --at 2026-05-13T21:30:00+09:00 note "Backfilled a Seoul-time task"
 ```
+
+RFC3339 timestamps keep their explicit offset. Naive timestamps are interpreted
+in the selected `--tz`, or in the system-local timezone when `--tz` is omitted.
 
 ## Agent Integration
 
@@ -247,4 +358,8 @@ Project constraints:
 ## Design Notes
 
 See [docs/plan/sillok-cli-chronicle-design.md](docs/plan/sillok-cli-chronicle-design.md)
-for the initial implementation plan and data model notes.
+for the initial implementation plan and data model notes. See
+[docs/architecture/be/turso-store.md](docs/architecture/be/turso-store.md),
+[docs/architecture/be/view-indexing.md](docs/architecture/be/view-indexing.md),
+and [docs/architecture/be/git-sync.md](docs/architecture/be/git-sync.md) for
+backend architecture notes.
