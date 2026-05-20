@@ -159,6 +159,19 @@ sillok export json
 sillok export json --from 2026-05-13T00:00:00 --to 2026-05-13T23:59:59
 ```
 
+Configure and run Git-backed event archive sync. Sync stores one
+`bitcode` + zstd level 22 archive artifact in the configured Git remote; the
+SQLite/Turso database remains local and is rebuilt from events when needed:
+
+```bash
+sillok sync remote set git@github.com:you/sillok-archive.git
+sillok sync remote set /path/to/archive.git --branch main --path sillok.slk.zst
+sillok sync remote show
+sillok sync pull
+sillok sync push
+sillok sync run
+```
+
 Migrate a legacy v1 archive:
 
 ```bash

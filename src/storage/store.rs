@@ -5,13 +5,12 @@ use std::path::{Path, PathBuf};
 use fs2::FileExt;
 use tracing::error;
 
+use crate::archive_codec::{LEGACY_ZSTD_LEVEL, decode_archive, encode_archive};
 use crate::domain::archive::Archive;
 use crate::domain::event::WorkContext;
 use crate::domain::id::ChronicleId;
 use crate::domain::time::Timestamp;
 use crate::error::SillokError;
-
-const ZSTD_LEVEL: i32 = 3;
 
 /// File-backed archive store with atomic writes and coarse locking.
 #[derive(Debug, Clone)]
@@ -178,18 +177,13 @@ impl ArchiveStore {
         let mut file = File::open(&self.path)?;
         let mut compressed = Vec::new();
         file.read_to_end(&mut compressed)?;
-        let encoded = zstd::stream::decode_all(&compressed[..])?;
-        drop(compressed);
-        let archive = bitcode::decode::<Archive>(&encoded)?;
-        drop(encoded);
+        let archive = decode_archive(&compressed)?;
         Ok(archive)
     }
 
     fn write_archive(&self, archive: &Archive) -> Result<(), SillokError> {
         self.ensure_parent_dir()?;
-        let encoded = bitcode::encode(archive);
-        let compressed = zstd::stream::encode_all(&encoded[..], ZSTD_LEVEL)?;
-        drop(encoded);
+        let compressed = encode_archive(archive, LEGACY_ZSTD_LEVEL)?;
 
         let temp_path = self.temp_path();
         {

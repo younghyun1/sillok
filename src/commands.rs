@@ -1,4 +1,6 @@
-use crate::cli::args::{Cli, Command, ExportCommand, ObjectiveCommand};
+use crate::cli::args::{
+    Cli, Command, ExportCommand, ObjectiveCommand, SyncCommand, SyncRemoteCommand,
+};
 use crate::cli::output::CommandOutcome;
 use crate::error::SillokError;
 use crate::operation::OperationContext;
@@ -33,6 +35,15 @@ pub async fn execute(cli: Cli) -> Result<CommandOutcome, SillokError> {
         Command::Doctor => crate::queries::doctor(ctx).await,
         Command::Export(args) => match args.command {
             ExportCommand::Json(args) => crate::queries::export_json(ctx, args).await,
+        },
+        Command::Sync(args) => match args.command {
+            SyncCommand::Remote(args) => match args.command {
+                SyncRemoteCommand::Set(args) => crate::sync::service::remote_set(ctx, args).await,
+                SyncRemoteCommand::Show => crate::sync::service::remote_show(ctx).await,
+            },
+            SyncCommand::Pull => crate::sync::service::pull(ctx).await,
+            SyncCommand::Push => crate::sync::service::push(ctx).await,
+            SyncCommand::Run => crate::sync::service::run(ctx).await,
         },
         Command::Truncate(args) => crate::mutations::truncate(ctx, args).await,
         Command::Migrate(_) => Err(SillokError::new(

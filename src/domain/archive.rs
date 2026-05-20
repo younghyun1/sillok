@@ -8,7 +8,7 @@ use crate::domain::time::Timestamp;
 pub const ARCHIVE_SCHEMA_VERSION: u32 = 1;
 
 /// Append-only persisted archive. Serialization is private to the storage layer.
-#[derive(Debug, Clone, Serialize, Encode, Decode)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Encode, Decode)]
 pub struct Archive {
     pub schema_version: u32,
     pub archive_id: ChronicleId,

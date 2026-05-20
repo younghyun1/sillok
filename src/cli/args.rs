@@ -57,6 +57,8 @@ pub enum Command {
     Doctor,
     /// Export current derived data.
     Export(ExportArgs),
+    /// Sync the local event archive through a Git remote artifact.
+    Sync(SyncArgs),
     /// Migrate a legacy v1 archive into the v2 Turso store.
     Migrate(MigrateArgs),
     /// Backup and reset the whole archive.
@@ -78,6 +80,7 @@ impl Command {
             Self::Tree(_) => "tree",
             Self::Doctor => "doctor",
             Self::Export(_) => "export",
+            Self::Sync(_) => "sync",
             Self::Migrate(_) => "migrate",
             Self::Truncate(_) => "truncate",
         }
@@ -198,6 +201,46 @@ pub struct ExportArgs {
 #[derive(Debug, Subcommand)]
 pub enum ExportCommand {
     Json(ExportJsonArgs),
+}
+
+/// Args for `sync`.
+#[derive(Debug, Args)]
+pub struct SyncArgs {
+    #[command(subcommand)]
+    pub command: SyncCommand,
+}
+
+/// Sync subcommands.
+#[derive(Debug, Subcommand)]
+pub enum SyncCommand {
+    Remote(SyncRemoteArgs),
+    Pull,
+    Push,
+    Run,
+}
+
+/// Args for `sync remote`.
+#[derive(Debug, Args)]
+pub struct SyncRemoteArgs {
+    #[command(subcommand)]
+    pub command: SyncRemoteCommand,
+}
+
+/// Sync remote subcommands.
+#[derive(Debug, Subcommand)]
+pub enum SyncRemoteCommand {
+    Set(SyncRemoteSetArgs),
+    Show,
+}
+
+/// Args for `sync remote set`.
+#[derive(Debug, Args)]
+pub struct SyncRemoteSetArgs {
+    pub url: String,
+    #[arg(long)]
+    pub branch: Option<String>,
+    #[arg(long)]
+    pub path: Option<String>,
 }
 
 /// Args for `export json`.

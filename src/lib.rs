@@ -2,6 +2,7 @@
 #![deny(clippy::expect_used)]
 
 pub mod app;
+pub mod archive_codec;
 pub mod cli;
 pub mod commands;
 pub mod context;
@@ -13,3 +14,4 @@ pub mod mutations;
 pub mod operation;
 pub mod queries;
 pub mod storage;
+pub mod sync;

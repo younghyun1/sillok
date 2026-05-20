@@ -78,6 +78,16 @@ impl SqlStore {
         }))
     }
 
+    /// Exports the authoritative append-only event stream from the database.
+    pub async fn export_archive(&self) -> Result<Option<Archive>, SillokError> {
+        let Some(conn) = self.connect_existing().await? else {
+            return Ok(None);
+        };
+        let archive = archive_from_db(&conn).await?;
+        ChronicleView::build(&archive)?;
+        Ok(Some(archive))
+    }
+
     /// Reads one record and its event history.
     pub async fn show(
         &self,
@@ -249,6 +259,47 @@ impl SqlStore {
             event_count: archive.events.len(),
             record_count: view.records.len(),
         })
+    }
+
+    /// Atomically replaces the database with projections rebuilt from an archive.
+    pub async fn rebuild_from_archive(
+        &self,
+        archive: &Archive,
+        recorded_at: Timestamp,
+    ) -> Result<(StoreStats, Option<PathBuf>), SillokError> {
+        ChronicleView::build(archive)?;
+        ensure_parent_dir(&self.path)?;
+        let temp_path = self.temp_rebuild_path(recorded_at);
+        let temp_store = Self::new(temp_path.clone());
+        let stats = temp_store.import_archive(archive).await?;
+        temp_store.doctor().await?;
+        remove_db_sidecars(&temp_path)?;
+
+        let backup = if self.path.exists() {
+            if let Some(conn) = self.connect_existing().await? {
+                checkpoint(&conn).await?;
+                drop(conn);
+            }
+            let backup_path = self.rebuild_backup_path(recorded_at);
+            fs::rename(&self.path, &backup_path)?;
+            remove_db_sidecars(&self.path)?;
+            Some(backup_path)
+        } else {
+            remove_db_sidecars(&self.path)?;
+            None
+        };
+
+        match fs::rename(&temp_path, &self.path) {
+            Ok(()) => Ok((stats, backup)),
+            Err(error) => {
+                if let Some(backup_path) = &backup {
+                    match fs::rename(backup_path, &self.path) {
+                        Ok(()) | Err(_) => {}
+                    }
+                }
+                Err(error.into())
+            }
+        }
     }
 
     /// Records a task and returns its current derived state.
@@ -523,6 +574,26 @@ impl SqlStore {
     fn backup_path(&self, timestamp: Timestamp) -> PathBuf {
         let mut path = self.path.clone();
         path.set_extension(format!("{}.bak.db", timestamp.as_millis()));
+        path
+    }
+
+    fn temp_rebuild_path(&self, timestamp: Timestamp) -> PathBuf {
+        let mut path = self.path.clone();
+        path.set_extension(format!(
+            "{}.{}.tmp.db",
+            timestamp.as_millis(),
+            ChronicleId::new_v7()
+        ));
+        path
+    }
+
+    fn rebuild_backup_path(&self, timestamp: Timestamp) -> PathBuf {
+        let mut path = self.path.clone();
+        path.set_extension(format!(
+            "{}.{}.bak.db",
+            timestamp.as_millis(),
+            ChronicleId::new_v7()
+        ));
         path
     }
 }
@@ -951,6 +1022,15 @@ fn remove_db_file(path: &Path) -> Result<(), SillokError> {
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
         Err(error) => Err(error.into()),
     }
+}
+
+fn remove_db_sidecars(path: &Path) -> Result<(), SillokError> {
+    for suffix in ["-wal", "-shm"] {
+        let mut sidecar = path.as_os_str().to_os_string();
+        sidecar.push(suffix);
+        remove_db_file(&PathBuf::from(sidecar))?;
+    }
+    Ok(())
 }
 
 async fn ensure_initialized(
