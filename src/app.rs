@@ -1,7 +1,7 @@
 use clap::Parser;
 
 use crate::cli::args::Cli;
-use crate::cli::output::{print_failure, print_success};
+use crate::cli::output::{OutputMode, print_failure, print_success};
 use crate::commands::execute;
 
 /// Parses CLI args, executes the command, prints the response, and returns an exit code.
@@ -9,7 +9,13 @@ pub fn run_from_env() -> i32 {
     init_tracing();
     let cli = Cli::parse();
     let command = cli.command.name();
-    let human = cli.human;
+    let output_mode = if cli.human {
+        OutputMode::Human
+    } else if cli.json {
+        OutputMode::Json
+    } else {
+        OutputMode::Compact
+    };
     let runtime = match tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
@@ -21,14 +27,14 @@ pub fn run_from_env() -> i32 {
         }
     };
     match runtime.block_on(execute(cli)) {
-        Ok(outcome) => match print_success(outcome, human) {
+        Ok(outcome) => match print_success(outcome, output_mode) {
             Ok(()) => 0,
             Err(error) => {
                 eprintln!("{error}");
                 1
             }
         },
-        Err(error) => match print_failure(command, &error) {
+        Err(error) => match print_failure(command, &error, output_mode) {
             Ok(()) => 1,
             Err(print_error) => {
                 eprintln!("{error}");

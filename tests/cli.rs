@@ -21,8 +21,20 @@ fn temp_store() -> Result<(tempfile::TempDir, PathBuf), Box<dyn std::error::Erro
 }
 
 fn run_json(store: &Path, args: &[&str]) -> Result<Value, Box<dyn std::error::Error>> {
-    let stdout = run_stdout(store, args)?;
+    let mut json_args = Vec::with_capacity(args.len() + 1);
+    json_args.push("--json");
+    json_args.extend(args.iter().copied());
+    let stdout = run_stdout(store, &json_args)?;
     match serde_json::from_str::<Value>(&stdout) {
+        Ok(value) => Ok(value),
+        Err(error) => Err(boxed_error(format!(
+            "json parse failed: {error}; stdout={stdout}"
+        ))),
+    }
+}
+
+fn parse_json(stdout: &str) -> Result<Value, Box<dyn std::error::Error>> {
+    match serde_json::from_str::<Value>(stdout) {
         Ok(value) => Ok(value),
         Err(error) => Err(boxed_error(format!(
             "json parse failed: {error}; stdout={stdout}"
@@ -75,6 +87,54 @@ fn legacy_context() -> WorkContext {
         git_head: None,
         git_remote: None,
     }
+}
+
+#[test]
+fn default_write_output_is_compact_ids() -> Result<(), Box<dyn std::error::Error>> {
+    let (_dir, store) = temp_store()?;
+    let stdout = run_stdout(
+        &store,
+        &[
+            "--tz",
+            "UTC",
+            "--at",
+            "2026-05-13T10:00:00Z",
+            "note",
+            "compact write output",
+        ],
+    )?;
+    let compact = parse_json(&stdout)?;
+    string_at(&compact, "/task_id")?;
+    string_at(&compact, "/day_id")?;
+    assert!(compact.get("ok").is_none());
+    assert!(compact.get("command").is_none());
+    assert!(compact.get("generated_at").is_none());
+    assert!(compact.get("data").is_none());
+    Ok(())
+}
+
+#[test]
+fn default_read_output_omits_verbose_envelope() -> Result<(), Box<dyn std::error::Error>> {
+    let (_dir, store) = temp_store()?;
+    run_json(
+        &store,
+        &[
+            "--tz",
+            "UTC",
+            "--at",
+            "2026-05-13T10:00:00Z",
+            "note",
+            "compact read output",
+        ],
+    )?;
+    let stdout = run_stdout(&store, &["--tz", "UTC", "day", "--date", "2026-05-13"])?;
+    let compact = parse_json(&stdout)?;
+    assert_eq!(compact["records"][0]["text"], "compact read output");
+    assert!(compact.get("ok").is_none());
+    assert!(compact.get("command").is_none());
+    assert!(compact.get("generated_at").is_none());
+    assert!(compact.get("data").is_none());
+    Ok(())
 }
 
 #[test]

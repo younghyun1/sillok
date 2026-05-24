@@ -12,12 +12,12 @@ pub struct Cli {
     #[arg(long, global = true, env = "SILLOK_STORE")]
     pub store: Option<PathBuf>,
 
-    /// Print readable summaries instead of JSON.
-    #[arg(long, global = true)]
+    /// Print verbose readable summaries.
+    #[arg(long, global = true, conflicts_with = "json")]
     pub human: bool,
 
-    /// Accepted for explicitness; JSON is the default output.
-    #[arg(long, global = true)]
+    /// Print the verbose JSON response envelope.
+    #[arg(long, global = true, conflicts_with = "human")]
     pub json: bool,
 
     /// Event timestamp for backfills. RFC3339 or YYYY-MM-DDTHH:MM:SS.

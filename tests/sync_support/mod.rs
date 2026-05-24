@@ -18,7 +18,10 @@ pub fn temp_store() -> Result<(tempfile::TempDir, PathBuf), Box<dyn std::error::
 }
 
 pub fn run_json(store: &Path, args: &[&str]) -> Result<Value, Box<dyn std::error::Error>> {
-    let stdout = run_stdout(store, args)?;
+    let mut json_args = Vec::with_capacity(args.len() + 1);
+    json_args.push("--json");
+    json_args.extend(args.iter().copied());
+    let stdout = run_stdout(store, &json_args)?;
     parse_json(&stdout)
 }
 
@@ -29,6 +32,7 @@ pub fn run_failure_json(store: &Path, args: &[&str]) -> Result<Value, Box<dyn st
     };
     command.arg("--store").arg(store);
     command.env("TZ", "UTC");
+    command.arg("--json");
     for arg in args {
         command.arg(arg);
     }

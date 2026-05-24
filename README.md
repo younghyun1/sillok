@@ -71,7 +71,15 @@ projection database. Sync config is stored beside the selected store at
 
 ## Output
 
-JSON is the default output and is intended for agents:
+Compact JSON is the default output and is intended for agents. Successful write
+commands return only the IDs needed for follow-up commands:
+
+```json
+{"task_id":"019e...","day_id":"019e..."}
+```
+
+Read commands return their command data without the response envelope. Use
+`--json` when an agent needs the full verbose response envelope:
 
 ```json
 {
@@ -84,7 +92,13 @@ JSON is the default output and is intended for agents:
 }
 ```
 
-Failures are also JSON by default:
+Failures are compact JSON by default:
+
+```json
+{"error":"sync_remote_missing","message":"sync remote is not configured"}
+```
+
+Use `--json` for verbose failure envelopes:
 
 ```json
 {
@@ -98,9 +112,9 @@ Failures are also JSON by default:
 }
 ```
 
-JSON records include stable RFC3339 `created_at` and `updated_at` fields. Most
-success responses include `ids`, `data`, and `warnings`. Use `--human` for
-interactive summaries with local-device timestamps rendered as readable
+JSON records include stable RFC3339 `created_at` and `updated_at` fields.
+Verbose success responses include `ids`, `data`, and `warnings`. Use `--human`
+for interactive summaries with local-device timestamps rendered as readable
 wall-clock time:
 
 ```bash
@@ -140,8 +154,8 @@ Global option details:
 
 - `--store`: use a specific store path; defaults to `SILLOK_STORE` or XDG data
   storage.
-- `--human`: print readable summaries instead of JSON when supported.
-- `--json`: explicit no-op because JSON is already the default.
+- `--human`: print verbose readable summaries instead of compact JSON.
+- `--json`: print the verbose JSON response envelope.
 - `--at`: assign the event timestamp. Accepts RFC3339 or naive
   `YYYY-MM-DDTHH:MM:SS`.
 - `--tz`: timezone for local day attribution and naive `--at` parsing.
@@ -313,10 +327,11 @@ objectives and completed work while they operate:
 ## Sillok
 
 Use Sillok for substantive agentic work. Record objectives, completed tasks,
-and corrections during the session instead of relying on chat history. JSON is
-the default output for agents; use `--human` only for summaries intended for a
-person. Never run `sillok truncate --yes` unless the user explicitly asks to
-reset the whole archive.
+and corrections during the session instead of relying on chat history. Compact
+JSON is the default output for agents; use `--json` only when the full response
+envelope is needed, and `--human` only for summaries intended for a person.
+Never run `sillok truncate --yes` unless the user explicitly asks to reset the
+whole archive.
 
 ```bash
 sillok objective add "Ship the storage/indexing refactor"
