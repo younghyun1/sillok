@@ -71,15 +71,15 @@ projection database. Sync config is stored beside the selected store at
 
 ## Output
 
-Compact JSON is the default output and is intended for agents. Successful write
-commands return only the IDs needed for follow-up commands:
+Quiet output is the default and is intended for agents. Successful write/action
+commands usually print nothing:
 
-```json
-{"task_id":"019e...","day_id":"019e..."}
+```bash
+sillok note "Implemented archive-backed task logging"
 ```
 
-Read commands return their command data without the response envelope. Use
-`--json` when an agent needs the full verbose response envelope:
+Read commands still return compact JSON data without the response envelope. Use
+`--json` when an agent needs IDs or the full verbose response envelope:
 
 ```json
 {
@@ -154,7 +154,7 @@ Global option details:
 
 - `--store`: use a specific store path; defaults to `SILLOK_STORE` or XDG data
   storage.
-- `--human`: print verbose readable summaries instead of compact JSON.
+- `--human`: print verbose readable summaries instead of quiet default output.
 - `--json`: print the verbose JSON response envelope.
 - `--at`: assign the event timestamp. Accepts RFC3339 or naive
   `YYYY-MM-DDTHH:MM:SS`.
@@ -327,9 +327,10 @@ objectives and completed work while they operate:
 ## Sillok
 
 Use Sillok for substantive agentic work. Record objectives, completed tasks,
-and corrections during the session instead of relying on chat history. Compact
-JSON is the default output for agents; use `--json` only when the full response
-envelope is needed, and `--human` only for summaries intended for a person.
+and corrections during the session instead of relying on chat history. Quiet
+output is the default for agents; use `--json` only when IDs or the full
+response envelope are needed, and `--human` only for summaries intended for a
+person.
 Never run `sillok truncate --yes` unless the user explicitly asks to reset the
 whole archive.
 

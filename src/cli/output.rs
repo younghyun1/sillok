@@ -7,7 +7,7 @@ use crate::error::{ErrorPayload, SillokError};
 /// CLI output rendering mode.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OutputMode {
-    /// Compact machine output optimized for agent token usage.
+    /// Quiet machine output optimized for agent token usage.
     Compact,
     /// Full JSON response envelope.
     Json,
@@ -107,8 +107,9 @@ pub fn print_success(outcome: CommandOutcome, mode: OutputMode) -> Result<(), Si
             Ok(())
         }
         OutputMode::Compact => {
-            let response = compact_success_value(outcome);
-            println!("{}", serde_json::to_string(&response)?);
+            if let Some(response) = compact_success_value(outcome) {
+                println!("{}", serde_json::to_string(&response)?);
+            }
             Ok(())
         }
     }
@@ -147,38 +148,42 @@ pub fn print_failure(
     }
 }
 
-fn compact_success_value(outcome: CommandOutcome) -> Value {
+fn compact_success_value(outcome: CommandOutcome) -> Option<Value> {
     let CommandOutcome {
         command,
-        ids,
         data,
         warnings,
         human: _,
+        ids: _,
     } = outcome;
-    let mut value = if should_compact_to_ids(command, &ids) {
-        ids
-    } else {
-        data
-    };
-    append_warnings(&mut value, warnings);
-    value
-}
-
-fn should_compact_to_ids(command: &'static str, ids: &Value) -> bool {
-    if !has_object_fields(ids) {
-        return false;
+    if should_suppress_success(command, &data) {
+        return warning_value(warnings);
     }
-    matches!(
-        command,
-        "init" | "note" | "objective" | "amend" | "retract" | "truncate"
-    )
+    let mut value = data;
+    append_warnings(&mut value, warnings);
+    Some(value)
 }
 
-fn has_object_fields(value: &Value) -> bool {
-    match value {
-        Value::Object(values) => !values.is_empty(),
+fn should_suppress_success(command: &'static str, data: &Value) -> bool {
+    match command {
+        "init" | "note" | "objective" | "amend" | "retract" | "truncate" => true,
+        "migrate" => match data.get("dry_run").and_then(Value::as_bool) {
+            Some(true) => false,
+            Some(false) | None => true,
+        },
+        "sync" => match data.get("action").and_then(Value::as_str) {
+            Some("remote_show") => false,
+            Some(_) | None => true,
+        },
         _ => false,
     }
+}
+
+fn warning_value(warnings: Vec<String>) -> Option<Value> {
+    if warnings.is_empty() {
+        return None;
+    }
+    Some(json!({ "warnings": warnings }))
 }
 
 fn append_warnings(value: &mut Value, warnings: Vec<String>) {

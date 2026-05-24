@@ -90,7 +90,7 @@ fn legacy_context() -> WorkContext {
 }
 
 #[test]
-fn default_write_output_is_compact_ids() -> Result<(), Box<dyn std::error::Error>> {
+fn default_write_output_is_silent() -> Result<(), Box<dyn std::error::Error>> {
     let (_dir, store) = temp_store()?;
     let stdout = run_stdout(
         &store,
@@ -103,13 +103,48 @@ fn default_write_output_is_compact_ids() -> Result<(), Box<dyn std::error::Error
             "compact write output",
         ],
     )?;
-    let compact = parse_json(&stdout)?;
-    string_at(&compact, "/task_id")?;
-    string_at(&compact, "/day_id")?;
-    assert!(compact.get("ok").is_none());
-    assert!(compact.get("command").is_none());
-    assert!(compact.get("generated_at").is_none());
-    assert!(compact.get("data").is_none());
+    assert_eq!(stdout, "");
+    Ok(())
+}
+
+#[test]
+fn default_objective_complete_output_is_silent() -> Result<(), Box<dyn std::error::Error>> {
+    let (_dir, store) = temp_store()?;
+    let objective = run_json(
+        &store,
+        &[
+            "--tz",
+            "UTC",
+            "--at",
+            "2026-05-13T08:00:00Z",
+            "objective",
+            "add",
+            "quiet objective",
+        ],
+    )?;
+    let objective_id = string_at(&objective, "/ids/objective_id")?.to_string();
+    let stdout = run_stdout(&store, &["objective", "complete", &objective_id])?;
+    assert_eq!(stdout, "");
+    Ok(())
+}
+
+#[test]
+fn verbose_json_keeps_write_ids() -> Result<(), Box<dyn std::error::Error>> {
+    let (_dir, store) = temp_store()?;
+    let note = run_json(
+        &store,
+        &[
+            "--tz",
+            "UTC",
+            "--at",
+            "2026-05-13T10:00:00Z",
+            "note",
+            "verbose write output",
+        ],
+    )?;
+    string_at(&note, "/ids/task_id")?;
+    string_at(&note, "/ids/day_id")?;
+    assert_eq!(note["ok"], true);
     Ok(())
 }
 

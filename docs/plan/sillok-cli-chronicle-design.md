@@ -2,7 +2,7 @@
 
 ## Summary
 
-Sillok is a Rust CLI for agentic daily work logging. It records natural-language work notes, objectives, amendments, and retractions into one user-global local store while exposing compact deterministic JSON for autonomous harnesses.
+Sillok is a Rust CLI for agentic daily work logging. It records natural-language work notes, objectives, amendments, and retractions into one user-global local store while keeping successful write output silent by default and exposing deterministic JSON for autonomous harnesses when requested.
 
 The default store is `$XDG_DATA_HOME/sillok/sillok.db`, falling back to `~/.local/share/sillok/sillok.db`. `SILLOK_STORE` or `--store` overrides the path. The live v2 datashape is a private Turso/SQLite database. Legacy v1 archives at `sillok.slk.zst` remain readable by `doctor`, `export`, and `migrate`.
 
@@ -23,8 +23,9 @@ The default store is `$XDG_DATA_HOME/sillok/sillok.db`, falling back to `~/.loca
 - `sillok migrate --store LEGACY.slk.zst --target sillok.db --yes` migrates a v1 archive into the v2 store.
 - `sillok truncate --yes` backs up the whole archive and starts over.
 
-Compact JSON is the default output. `--json` returns the verbose JSON envelope,
-and `--human` is for interactive summaries.
+Successful write/action commands are silent by default. Read commands return
+compact JSON data. `--json` returns the verbose JSON envelope, and `--human` is
+for interactive summaries.
 
 ## Data Model
 
