@@ -1,6 +1,6 @@
 [package]
 name = "sillok"
-version = "0.8.0"
+version = "0.9.0"
 edition = "2024"
 rust-version = "1.95"
 description = "A structured CLI chronicle for agentic daily work logs."
@@ -31,7 +31,7 @@ panic = "abort"
 
 [dependencies]
 bitcode = "0.6.9"
-chrono = { version = "0.4.44", features = ["serde"] }
+chrono = { version = "0.4.45", features = ["serde"] }
 chrono-tz = "0.10.4"
 clap = { version = "4.6.1", features = ["derive", "env"] }
 directories = "6.0.0"
@@ -43,7 +43,7 @@ tokio = { version = "1.52.3", features = ["full"] }
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter", "fmt", "json"] }
 turso = "0.6.1"
-uuid = { version = "1.23.1", features = ["serde", "v7"] }
+uuid = { version = "1.23.3", features = ["serde", "v7"] }
 zstd = "0.13.3"
 
 [dev-dependencies]
