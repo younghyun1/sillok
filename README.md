@@ -273,19 +273,22 @@ Sync command behavior:
   `main` and artifact path `sillok.slk.zst`.
 - `sync remote show` prints the configured URL, branch, artifact path, and
   sidecar path.
-- `sync pull` reads the remote artifact, merges matching archives by event id,
-  and rebuilds the local database when local state is missing, behind, or
-  diverged.
-- `sync push` fetches the remote artifact, merges matching archives by event
-  id, rebuilds local state if needed, then writes the merged artifact to the
-  configured remote.
-- `sync run` performs bidirectional merge, validates the merged archive,
-  rebuilds the local database with a backup if needed, then pushes.
+- `sync pull` **overwrites** the local database with the remote archive
+  (adopting its `archive_id`), keeping a timestamped backup of the old database.
+  When the remote artifact is absent it is a no-op and leaves local state alone.
+- `sync push` **overwrites** the remote artifact with the local archive. With no
+  local archive it fails with `archive_missing`.
+- `sync run` is the merge path: it merges by `event_id` when both sides share an
+  `archive_id`, rebuilds the local database with a backup, and pushes. When the
+  `archive_id`s differ it cannot merge — an interactive terminal is prompted to
+  keep the local side (push) or the remote side (pull), while non-interactive
+  runs (`--json` or no TTY) refuse with `sync_mismatch_needs_choice`.
 
-Archives with the same `archive_id` are merged by `event_id`. Different
-non-empty archive IDs fail with `sync_archive_mismatch` and do not replace local
-or remote data. Git authentication is delegated to the user's existing `git`
-setup.
+Because each `init` mints its own `archive_id`, two independently-initialized
+stores cannot merge directly. Bootstrap a second machine with `sync pull` once
+(it adopts the remote `archive_id`); afterward both sides share an id and
+`sync run` merges normally. Git authentication is delegated to the user's
+existing `git` setup.
 
 Migrate a legacy v1 archive:
 

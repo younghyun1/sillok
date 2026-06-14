@@ -1,7 +1,7 @@
 use crate::cli::args::{
     Cli, Command, ExportCommand, ObjectiveCommand, SyncCommand, SyncRemoteCommand,
 };
-use crate::cli::output::CommandOutcome;
+use crate::cli::output::{CommandOutcome, OutputMode};
 use crate::error::SillokError;
 use crate::operation::OperationContext;
 
@@ -10,13 +10,14 @@ pub async fn execute(cli: Cli) -> Result<CommandOutcome, SillokError> {
     let store_path = cli.store.clone();
     let at = cli.at.clone();
     let tz = cli.tz.clone();
+    let output_mode = OutputMode::from_flags(cli.human, cli.json);
     let command = match cli.command {
         Command::Migrate(args) => {
-            return crate::migration::migrate(store_path, at, tz, args).await;
+            return crate::migration::migrate(store_path, at, tz, output_mode, args).await;
         }
         other => other,
     };
-    let ctx = OperationContext::new(cli.store, cli.at, cli.tz)?;
+    let ctx = OperationContext::new(cli.store, cli.at, cli.tz, output_mode)?;
     match command {
         Command::Init => crate::mutations::init(ctx).await,
         Command::Note(args) => crate::mutations::note(ctx, args).await,

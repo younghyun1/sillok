@@ -4,7 +4,7 @@ use serde::Serialize;
 use serde_json::json;
 
 use crate::cli::args::SyncRemoteSetArgs;
-use crate::cli::output::CommandOutcome;
+use crate::cli::output::{CommandOutcome, OutputMode};
 use crate::domain::archive::Archive;
 use crate::error::SillokError;
 use crate::operation::OperationContext;
@@ -13,7 +13,7 @@ use crate::sync::config::{
     DEFAULT_SYNC_BRANCH, DEFAULT_SYNC_PATH, SyncConfig, read_required, sidecar_path, write,
 };
 use crate::sync::git::{GitWorktree, PushOutcome};
-use crate::sync::merge::{MergeOutcome, merge_archives};
+use crate::sync::plan::{SyncMode, select_target};
 
 /// Stores the Git remote configuration for this Sillok store.
 pub async fn remote_set(
@@ -66,27 +66,6 @@ pub async fn run(ctx: OperationContext) -> Result<CommandOutcome, SillokError> {
     sync_archive(ctx, SyncMode::Run).await
 }
 
-#[derive(Debug, Clone, Copy)]
-enum SyncMode {
-    Pull,
-    Push,
-    Run,
-}
-
-impl SyncMode {
-    fn action(self) -> &'static str {
-        match self {
-            Self::Pull => "pull",
-            Self::Push => "push",
-            Self::Run => "run",
-        }
-    }
-
-    fn should_push(self) -> bool {
-        matches!(self, Self::Push | Self::Run)
-    }
-}
-
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 struct ArchiveSummary {
     archive_id: String,
@@ -121,14 +100,14 @@ async fn sync_archive(
     reject_legacy_sync(ctx.store.path())?;
     let config = read_required(ctx.store.path())?;
     let store = ctx.store.sql();
-    let mut attempt = run_attempt(&store, &config, ctx.recorded_at, mode).await;
-    if mode.should_push()
-        && matches!(
-            attempt.as_ref().map_err(SillokError::code),
-            Err("sync_push_rejected")
-        )
-    {
-        attempt = run_attempt(&store, &config, ctx.recorded_at, mode).await;
+    let mut attempt = run_attempt(&store, &config, ctx.recorded_at, mode, ctx.output_mode).await;
+    // A rejected push means the remote advanced under us; rebuild on the new
+    // head and retry once. Pull never pushes, so it never reaches this branch.
+    if matches!(
+        attempt.as_ref().map_err(SillokError::code),
+        Err("sync_push_rejected")
+    ) {
+        attempt = run_attempt(&store, &config, ctx.recorded_at, mode, ctx.output_mode).await;
     }
     let result = attempt?;
     Ok(sync_outcome(
@@ -154,41 +133,52 @@ async fn run_attempt(
     config: &SyncConfig,
     recorded_at: crate::domain::time::Timestamp,
     mode: SyncMode,
+    output_mode: OutputMode,
 ) -> Result<SyncAttempt, SillokError> {
     let local = store.export_archive().await?;
     let local_before = local.as_ref().map(summary);
+
+    // Push has nothing to upload without a local archive; fail before the fetch.
+    if matches!(mode, SyncMode::Push) && local.is_none() {
+        return Err(SillokError::new(
+            "archive_missing",
+            "cannot push because the local archive does not exist",
+        ));
+    }
+
     let worktree = GitWorktree::prepare(config.clone())?;
     let remote = worktree.read_archive()?;
     let remote_before = remote.as_ref().map(summary);
-    let MergeOutcome { archive, merged } = merge_archives(local.as_ref(), remote.as_ref())?;
-    let Some(merged_archive) = archive else {
-        return Err(SillokError::new(
-            "archive_missing",
-            "cannot sync because local and remote archives are both missing",
-        ));
+
+    let target = select_target(mode, output_mode, local.as_ref(), remote.as_ref())?;
+
+    let (local_after, pulled, backup) = match &target.local_target {
+        Some(archive) => {
+            let (sum, pulled, backup) =
+                rebuild_local_if_needed(store, local.as_ref(), archive, recorded_at).await?;
+            (Some(sum), pulled, backup)
+        }
+        None => (local_before.clone(), false, None),
     };
 
-    let (local_after, pulled, backup) =
-        rebuild_local_if_needed(store, local.as_ref(), &merged_archive, recorded_at).await?;
-    let PushOutcome { commit, pushed } = if mode.should_push() {
-        worktree.write_commit_push(&merged_archive)?
-    } else {
-        PushOutcome {
+    let PushOutcome { commit, pushed } = match &target.remote_target {
+        Some(archive) => worktree.write_commit_push(archive)?,
+        None => PushOutcome {
             commit: None,
             pushed: false,
-        }
+        },
     };
-    let remote_after = if mode.should_push() {
-        Some(summary(&merged_archive))
-    } else {
-        remote_before.clone()
+    let remote_after = match &target.remote_target {
+        Some(archive) => Some(summary(archive)),
+        None => remote_before.clone(),
     };
+
     Ok(SyncAttempt {
         local_before,
         remote_before,
-        local_after: Some(local_after),
+        local_after,
         remote_after,
-        merged,
+        merged: target.merged,
         pulled,
         pushed,
         backup,

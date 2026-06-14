@@ -15,6 +15,19 @@ pub enum OutputMode {
     Human,
 }
 
+impl OutputMode {
+    /// Resolves the rendering mode from the global `--human` / `--json` flags.
+    pub fn from_flags(human: bool, json: bool) -> Self {
+        if human {
+            Self::Human
+        } else if json {
+            Self::Json
+        } else {
+            Self::Compact
+        }
+    }
+}
+
 /// Successful command response.
 #[derive(Debug, Serialize)]
 pub struct SuccessResponse {

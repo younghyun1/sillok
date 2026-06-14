@@ -1,5 +1,6 @@
 use std::collections::BTreeSet;
 
+use crate::cli::output::OutputMode;
 use crate::context::capture;
 use crate::domain::event::WorkContext;
 use crate::domain::text::{EntryText, PurposeText, ReasonText, TagText};
@@ -18,6 +19,7 @@ pub struct OperationContext {
     pub work_context: WorkContext,
     pub zone: ZoneChoice,
     pub warnings: Vec<String>,
+    pub output_mode: OutputMode,
 }
 
 impl OperationContext {
@@ -26,6 +28,7 @@ impl OperationContext {
         store_path: Option<std::path::PathBuf>,
         at: Option<String>,
         tz: Option<String>,
+        output_mode: OutputMode,
     ) -> Result<Self, SillokError> {
         let zone = ZoneChoice::parse(tz.as_deref())?;
         let recorded_at = Timestamp::now();
@@ -50,6 +53,7 @@ impl OperationContext {
             work_context,
             zone,
             warnings,
+            output_mode,
         })
     }
 

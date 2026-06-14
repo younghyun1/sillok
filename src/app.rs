@@ -9,13 +9,7 @@ pub fn run_from_env() -> i32 {
     init_tracing();
     let cli = Cli::parse();
     let command = cli.command.name();
-    let output_mode = if cli.human {
-        OutputMode::Human
-    } else if cli.json {
-        OutputMode::Json
-    } else {
-        OutputMode::Compact
-    };
+    let output_mode = OutputMode::from_flags(cli.human, cli.json);
     let runtime = match tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
