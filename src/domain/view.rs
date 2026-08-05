@@ -41,20 +41,14 @@ pub struct ChronicleView<'a> {
     pub children: HashMap<ChronicleId, Vec<ChronicleId>>,
     pub parent_by_child: HashMap<ChronicleId, ChronicleId>,
     pub day_by_key: HashMap<DayKey, ChronicleId>,
+    /// Non-canonical day ids mapped to the canonical day for the same key.
+    /// Populated only when merged archives each opened the same calendar day.
+    pub day_alias: HashMap<ChronicleId, ChronicleId>,
     pub by_day: HashMap<ChronicleId, Vec<ChronicleId>>,
     pub timeline: BTreeMap<Timestamp, Vec<ChronicleId>>,
     pub by_tag: HashMap<String, Vec<ChronicleId>>,
     pub by_context: HashMap<String, Vec<ChronicleId>>,
     pub by_status: HashMap<RecordStatus, Vec<ChronicleId>>,
-}
-
-#[derive(Debug, Clone, Copy)]
-struct RecordQuery<'a> {
-    from: Timestamp,
-    to: Timestamp,
-    context: Option<&'a str>,
-    tag: Option<&'a str>,
-    status: Option<RecordStatus>,
 }
 
 impl<'a> ChronicleView<'a> {
@@ -74,6 +68,7 @@ impl<'a> ChronicleView<'a> {
             children: HashMap::with_capacity(event_count.saturating_div(2)),
             parent_by_child: HashMap::with_capacity(event_count.saturating_div(2)),
             day_by_key: HashMap::with_capacity(event_count.saturating_div(8)),
+            day_alias: HashMap::new(),
             by_day: HashMap::with_capacity(event_count.saturating_div(2)),
             timeline: BTreeMap::new(),
             by_tag: HashMap::with_capacity(event_count.saturating_div(2)),
@@ -84,8 +79,8 @@ impl<'a> ChronicleView<'a> {
         for event in &archive.events {
             crate::domain::reducer::apply_event(&mut view, event)?;
         }
-        crate::domain::reducer::rebuild_indexes(&mut view);
-        crate::domain::reducer::validate_parent_graph(&view)?;
+        crate::domain::indexes::rebuild_indexes(&mut view);
+        crate::domain::indexes::validate_parent_graph(&view)?;
         Ok(view)
     }
 
@@ -97,6 +92,14 @@ impl<'a> ChronicleView<'a> {
     /// Returns a day id by key.
     pub fn day_id(&self, key: &DayKey) -> Option<ChronicleId> {
         self.day_by_key.get(key).copied()
+    }
+
+    /// Resolves a possibly-aliased day id to the canonical record id.
+    ///
+    /// Ids that are not aliases resolve to themselves, so callers can apply
+    /// this to every event reference without checking record kinds first.
+    pub fn canonical_id(&self, id: ChronicleId) -> ChronicleId {
+        self.day_alias.get(&id).copied().unwrap_or(id)
     }
 
     /// Returns current visible records ordered by creation time and id.
@@ -112,59 +115,6 @@ impl<'a> ChronicleView<'a> {
                 }
             }
         }
-        records
-    }
-
-    /// Returns visible records within an inclusive creation-time range.
-    pub fn query(
-        &self,
-        from: Timestamp,
-        to: Timestamp,
-        context: Option<&str>,
-        tag: Option<&str>,
-        status: Option<RecordStatus>,
-    ) -> Vec<DerivedRecord> {
-        let mut records = Vec::new();
-        let filter = RecordQuery {
-            from,
-            to,
-            context,
-            tag,
-            status,
-        };
-        match (filter.tag, filter.status) {
-            (Some(required_tag), Some(required_status)) => {
-                let Some(tag_ids) = self.by_tag.get(required_tag) else {
-                    return records;
-                };
-                let Some(status_ids) = self.by_status.get(&required_status) else {
-                    return records;
-                };
-                if tag_ids.len() <= status_ids.len() {
-                    self.push_matching_records(tag_ids, &mut records, filter);
-                } else {
-                    self.push_matching_records(status_ids, &mut records, filter);
-                }
-            }
-            (Some(required_tag), None) => {
-                let Some(ids) = self.by_tag.get(required_tag) else {
-                    return records;
-                };
-                self.push_matching_records(ids, &mut records, filter);
-            }
-            (None, Some(required_status)) => {
-                let Some(ids) = self.by_status.get(&required_status) else {
-                    return records;
-                };
-                self.push_matching_records(ids, &mut records, filter);
-            }
-            (None, None) => {
-                for (_timestamp, bucket) in self.timeline.range(filter.from..=filter.to) {
-                    self.push_matching_records(bucket, &mut records, filter);
-                }
-            }
-        }
-        sort_records(&mut records);
         records
     }
 
@@ -243,49 +193,4 @@ impl<'a> ChronicleView<'a> {
             children,
         })
     }
-
-    fn push_matching_records(
-        &self,
-        ids: &[ChronicleId],
-        records: &mut Vec<DerivedRecord>,
-        filter: RecordQuery<'_>,
-    ) {
-        for id in ids {
-            let Some(record) = self.records.get(id) else {
-                continue;
-            };
-            if record_matches_query(record, filter) {
-                records.push(record.clone());
-            }
-        }
-    }
-}
-
-fn sort_records(records: &mut [DerivedRecord]) {
-    records.sort_by_key(|record| (record.created_at, record.record_id));
-}
-
-fn record_matches_query(record: &DerivedRecord, filter: RecordQuery<'_>) -> bool {
-    if record.created_at < filter.from || record.created_at > filter.to {
-        return false;
-    }
-    if record.status == RecordStatus::Retracted {
-        return false;
-    }
-    if let Some(required_status) = filter.status
-        && record.status != required_status
-    {
-        return false;
-    }
-    if let Some(required_tag) = filter.tag
-        && !record.tags.iter().any(|value| value == required_tag)
-    {
-        return false;
-    }
-    if let Some(required_context) = filter.context
-        && !record.context.key_contains(required_context)
-    {
-        return false;
-    }
-    true
 }

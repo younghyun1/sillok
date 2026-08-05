@@ -5,7 +5,7 @@ use serde_json::json;
 
 use crate::cli::args::MigrateArgs;
 use crate::cli::human;
-use crate::cli::output::{CommandOutcome, OutputMode};
+use crate::cli::output::CommandOutcome;
 use crate::domain::view::ChronicleView;
 use crate::error::SillokError;
 use crate::operation::OperationContext;
@@ -19,10 +19,9 @@ pub async fn migrate(
     store_path: Option<PathBuf>,
     at: Option<String>,
     tz: Option<String>,
-    output_mode: OutputMode,
     args: MigrateArgs,
 ) -> Result<CommandOutcome, SillokError> {
-    let ctx = OperationContext::new(store_path.clone(), at, tz, output_mode)?;
+    let ctx = OperationContext::new(store_path.clone(), at, tz)?;
     let source = match store_path {
         Some(path) => path,
         None => legacy_default_store_path()?,

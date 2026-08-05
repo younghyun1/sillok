@@ -207,15 +207,15 @@ pub enum ExportCommand {
 #[derive(Debug, Args)]
 pub struct SyncArgs {
     #[command(subcommand)]
-    pub command: SyncCommand,
+    pub command: Option<SyncCommand>,
 }
 
-/// Sync subcommands.
+/// Sync subcommands. A bare `sync` runs the mesh.
 #[derive(Debug, Subcommand)]
 pub enum SyncCommand {
+    /// Configure the Git remote artifact location.
     Remote(SyncRemoteArgs),
-    Pull,
-    Push,
+    /// Mesh the local and remote archives and update both sides (default).
     Run,
 }
 

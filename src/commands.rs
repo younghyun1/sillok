@@ -1,7 +1,7 @@
 use crate::cli::args::{
     Cli, Command, ExportCommand, ObjectiveCommand, SyncCommand, SyncRemoteCommand,
 };
-use crate::cli::output::{CommandOutcome, OutputMode};
+use crate::cli::output::CommandOutcome;
 use crate::error::SillokError;
 use crate::operation::OperationContext;
 
@@ -10,14 +10,13 @@ pub async fn execute(cli: Cli) -> Result<CommandOutcome, SillokError> {
     let store_path = cli.store.clone();
     let at = cli.at.clone();
     let tz = cli.tz.clone();
-    let output_mode = OutputMode::from_flags(cli.human, cli.json);
     let command = match cli.command {
         Command::Migrate(args) => {
-            return crate::migration::migrate(store_path, at, tz, output_mode, args).await;
+            return crate::migration::migrate(store_path, at, tz, args).await;
         }
         other => other,
     };
-    let ctx = OperationContext::new(cli.store, cli.at, cli.tz, output_mode)?;
+    let ctx = OperationContext::new(cli.store, cli.at, cli.tz)?;
     match command {
         Command::Init => crate::mutations::init(ctx).await,
         Command::Note(args) => crate::mutations::note(ctx, args).await,
@@ -37,13 +36,11 @@ pub async fn execute(cli: Cli) -> Result<CommandOutcome, SillokError> {
         Command::Export(args) => match args.command {
             ExportCommand::Json(args) => crate::queries::export_json(ctx, args).await,
         },
-        Command::Sync(args) => match args.command {
+        Command::Sync(args) => match args.command.unwrap_or(SyncCommand::Run) {
             SyncCommand::Remote(args) => match args.command {
                 SyncRemoteCommand::Set(args) => crate::sync::service::remote_set(ctx, args).await,
                 SyncRemoteCommand::Show => crate::sync::service::remote_show(ctx).await,
             },
-            SyncCommand::Pull => crate::sync::service::pull(ctx).await,
-            SyncCommand::Push => crate::sync::service::push(ctx).await,
             SyncCommand::Run => crate::sync::service::run(ctx).await,
         },
         Command::Truncate(args) => crate::mutations::truncate(ctx, args).await,

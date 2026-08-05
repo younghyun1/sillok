@@ -8,7 +8,6 @@ use turso::{Builder, Connection, Row, Value, params, params_from_iter};
 use crate::domain::archive::{ARCHIVE_SCHEMA_VERSION, Archive};
 use crate::domain::event::{ChronicleEvent, EventKind, RecordKind, RecordStatus, WorkContext};
 use crate::domain::id::ChronicleId;
-use crate::domain::reducer;
 use crate::domain::time::{DayKey, Timestamp};
 use crate::domain::view::{ChronicleView, DerivedRecord, RecordTreeNode};
 use crate::error::SillokError;
@@ -174,7 +173,7 @@ impl SqlStore {
         validate_integrity(&conn).await?;
         let archive = archive_from_db(&conn).await?;
         let view = ChronicleView::build(&archive)?;
-        reducer::validate_parent_graph(&view)?;
+        crate::domain::indexes::validate_parent_graph(&view)?;
         let stats = StoreStats {
             info: StoreInfo {
                 archive_id: archive.archive_id,

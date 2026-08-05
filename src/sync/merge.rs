@@ -32,16 +32,22 @@ pub fn merge_archives(
             })
         }
         (Some(local_archive), Some(remote_archive)) => {
-            ensure_same_archive(local_archive, remote_archive)?;
-            let events = merged_events(local_archive, remote_archive)?;
-            let created_at = if local_archive.created_at <= remote_archive.created_at {
-                local_archive.created_at
+            // Archives with different ids mesh too: events union by event_id
+            // and the older identity survives. The survivor must be a pure
+            // function of the two inputs so every replica converges on a
+            // byte-identical artifact instead of ping-ponging ids through the
+            // remote; (created_at, archive_id) is a deterministic total order.
+            let (archive_id, created_at) = if (local_archive.created_at, local_archive.archive_id)
+                <= (remote_archive.created_at, remote_archive.archive_id)
+            {
+                (local_archive.archive_id, local_archive.created_at)
             } else {
-                remote_archive.created_at
+                (remote_archive.archive_id, remote_archive.created_at)
             };
+            let events = merged_events(local_archive, remote_archive)?;
             let archive = Archive {
                 schema_version: ARCHIVE_SCHEMA_VERSION,
-                archive_id: local_archive.archive_id,
+                archive_id,
                 created_at,
                 events,
             };
@@ -52,20 +58,6 @@ pub fn merge_archives(
                 merged,
             })
         }
-    }
-}
-
-fn ensure_same_archive(local: &Archive, remote: &Archive) -> Result<(), SillokError> {
-    if local.archive_id == remote.archive_id {
-        Ok(())
-    } else {
-        Err(SillokError::new(
-            "sync_archive_mismatch",
-            format!(
-                "local archive `{}` does not match remote archive `{}`",
-                local.archive_id, remote.archive_id
-            ),
-        ))
     }
 }
 

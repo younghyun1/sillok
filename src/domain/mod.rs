@@ -1,7 +1,9 @@
 pub mod archive;
 pub mod event;
 pub mod id;
+pub mod indexes;
 pub mod reducer;
 pub mod text;
 pub mod time;
 pub mod view;
+pub mod view_query;

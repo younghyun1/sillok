@@ -262,9 +262,7 @@ SQLite/Turso database remains local and is rebuilt from events when needed:
 sillok sync remote set git@github.com:you/sillok-archive.git
 sillok sync remote set /path/to/archive.git --branch main --path sillok.slk.zst
 sillok sync remote show
-sillok sync pull
-sillok sync push
-sillok sync run
+sillok sync
 ```
 
 Sync command behavior:
@@ -273,22 +271,18 @@ Sync command behavior:
   `main` and artifact path `sillok.slk.zst`.
 - `sync remote show` prints the configured URL, branch, artifact path, and
   sidecar path.
-- `sync pull` **overwrites** the local database with the remote archive
-  (adopting its `archive_id`), keeping a timestamped backup of the old database.
-  When the remote artifact is absent it is a no-op and leaves local state alone.
-- `sync push` **overwrites** the remote artifact with the local archive. With no
-  local archive it fails with `archive_missing`.
-- `sync run` is the merge path: it merges by `event_id` when both sides share an
-  `archive_id`, rebuilds the local database with a backup, and pushes. When the
-  `archive_id`s differ it cannot merge — an interactive terminal is prompted to
-  keep the local side (push) or the remote side (pull), while non-interactive
-  runs (`--json` or no TTY) refuse with `sync_mismatch_needs_choice`.
+- `sync` (or the explicit `sync run`) meshes the two sides: events union by
+  `event_id`, including archives that never shared an `archive_id`, so nothing
+  is discarded from either side. The merged archive rebuilds the local database
+  with a timestamped backup and is pushed to the remote when its content
+  changed. When only one side has an archive, the other simply adopts it.
 
-Because each `init` mints its own `archive_id`, two independently-initialized
-stores cannot merge directly. Bootstrap a second machine with `sync pull` once
-(it adopts the remote `archive_id`); afterward both sides share an id and
-`sync run` merges normally. Git authentication is delegated to the user's
-existing `git` setup.
+When two independently-initialized archives mesh, the older `archive_id`
+survives deterministically, so every replica converges on the same artifact.
+Days opened independently on both machines collapse into one Day record per
+date. The only refusal is a true conflict: the same `event_id` carrying
+different payloads fails with `sync_merge_conflict`. Git authentication is
+delegated to the user's existing `git` setup.
 
 Migrate a legacy v1 archive:
 

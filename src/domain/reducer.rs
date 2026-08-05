@@ -1,5 +1,3 @@
-use std::collections::HashSet;
-
 use crate::domain::event::{ChronicleEvent, EventKind, RecordKind, RecordStatus};
 use crate::domain::id::ChronicleId;
 use crate::domain::view::{ChronicleView, DerivedRecord};
@@ -13,6 +11,18 @@ pub fn apply_event(
     match &event.kind {
         EventKind::ArchiveInitialized { .. } => Ok(()),
         EventKind::DayOpened { day_id, day_key } => {
+            // Independently-initialized archives can each open the same
+            // calendar day; after a mesh both DayOpened events survive. The
+            // first one in event order stays canonical and later ones become
+            // aliases, so records from both sides land under one Day record.
+            // Merge ordering ranks all DayOpened events before their
+            // dependents, so the alias exists before any child resolves it.
+            if let Some(canonical) = view.day_by_key.get(day_key).copied() {
+                if canonical != *day_id {
+                    view.day_alias.insert(*day_id, canonical);
+                }
+                return Ok(());
+            }
             let record = DerivedRecord {
                 record_id: *day_id,
                 kind: RecordKind::Day,
@@ -38,12 +48,13 @@ pub fn apply_event(
             text,
             tags,
         } => {
-            require_record(view, day_id)?;
+            let day_id = view.canonical_id(*day_id);
+            require_record(view, &day_id)?;
             let record = DerivedRecord {
                 record_id: *objective_id,
                 kind: RecordKind::Objective,
-                day_id: *day_id,
-                parent_id: Some(*day_id),
+                day_id,
+                parent_id: Some(day_id),
                 text: text.clone(),
                 purpose: None,
                 tags: tags.clone(),
@@ -55,11 +66,12 @@ pub fn apply_event(
                 day_key: None,
             };
             view.records.insert(*objective_id, record);
-            set_parent(view, *objective_id, *day_id);
+            set_parent(view, *objective_id, day_id);
             Ok(())
         }
         EventKind::ObjectiveCompleted { objective_id, note } => {
-            let record = require_record_mut(view, objective_id)?;
+            let objective_id = view.canonical_id(*objective_id);
+            let record = require_record_mut(view, &objective_id)?;
             record.status = RecordStatus::Completed;
             record.updated_at = event.recorded_at;
             if let Some(value) = note {
@@ -76,13 +88,15 @@ pub fn apply_event(
             tags,
             status,
         } => {
-            require_record(view, day_id)?;
-            require_record(view, parent_id)?;
+            let day_id = view.canonical_id(*day_id);
+            let parent_id = view.canonical_id(*parent_id);
+            require_record(view, &day_id)?;
+            require_record(view, &parent_id)?;
             let record = DerivedRecord {
                 record_id: *task_id,
                 kind: RecordKind::Task,
-                day_id: *day_id,
-                parent_id: Some(*parent_id),
+                day_id,
+                parent_id: Some(parent_id),
                 text: text.clone(),
                 purpose: purpose.clone(),
                 tags: tags.clone(),
@@ -94,7 +108,7 @@ pub fn apply_event(
                 day_key: None,
             };
             view.records.insert(*task_id, record);
-            set_parent(view, *task_id, *parent_id);
+            set_parent(view, *task_id, parent_id);
             Ok(())
         }
         EventKind::TaskAmended {
@@ -104,7 +118,8 @@ pub fn apply_event(
             purpose,
             tags,
         } => {
-            let record = require_record_mut(view, record_id)?;
+            let record_id = view.canonical_id(*record_id);
+            let record = require_record_mut(view, &record_id)?;
             if let Some(value) = text {
                 record.text = value.clone();
             }
@@ -121,7 +136,8 @@ pub fn apply_event(
             Ok(())
         }
         EventKind::TaskRetracted { record_id, reason } => {
-            let record = require_record_mut(view, record_id)?;
+            let record_id = view.canonical_id(*record_id);
+            let record = require_record_mut(view, &record_id)?;
             record.status = RecordStatus::Retracted;
             record.retraction_reason = Some(reason.clone());
             record.updated_at = event.recorded_at;
@@ -131,85 +147,28 @@ pub fn apply_event(
             child_id,
             parent_id,
         } => {
-            require_record(view, parent_id)?;
+            let child_id = view.canonical_id(*child_id);
+            let parent_id = view.canonical_id(*parent_id);
+            require_record(view, &parent_id)?;
             {
-                let record = require_record_mut(view, child_id)?;
-                record.parent_id = Some(*parent_id);
+                let record = require_record_mut(view, &child_id)?;
+                record.parent_id = Some(parent_id);
                 record.updated_at = event.recorded_at;
             }
-            set_parent(view, *child_id, *parent_id);
+            set_parent(view, child_id, parent_id);
             Ok(())
         }
         EventKind::TaskUnlinked { child_id } => {
+            let child_id = view.canonical_id(*child_id);
             {
-                let record = require_record_mut(view, child_id)?;
+                let record = require_record_mut(view, &child_id)?;
                 record.parent_id = None;
                 record.updated_at = event.recorded_at;
             }
-            unset_parent(view, *child_id);
+            unset_parent(view, child_id);
             Ok(())
         }
     }
-}
-
-/// Rebuilds secondary indexes after all events are reduced.
-pub fn rebuild_indexes(view: &mut ChronicleView<'_>) {
-    view.by_day.clear();
-    view.timeline.clear();
-    view.by_tag.clear();
-    view.by_context.clear();
-    view.by_status.clear();
-
-    for record in view.records.values() {
-        view.by_day
-            .entry(record.day_id)
-            .or_default()
-            .push(record.record_id);
-        view.timeline
-            .entry(record.created_at)
-            .or_default()
-            .push(record.record_id);
-        for tag in &record.tags {
-            view.by_tag
-                .entry(tag.clone())
-                .or_default()
-                .push(record.record_id);
-        }
-        view.by_context
-            .entry(record.context.key())
-            .or_default()
-            .push(record.record_id);
-        view.by_status
-            .entry(record.status)
-            .or_default()
-            .push(record.record_id);
-    }
-    sort_indexes(view);
-}
-
-/// Validates that parent pointers do not form cycles.
-pub fn validate_parent_graph(view: &ChronicleView<'_>) -> Result<(), SillokError> {
-    let mut seen = HashSet::with_capacity(view.parent_by_child.len());
-    for record_id in view.records.keys() {
-        seen.clear();
-        let mut current = *record_id;
-        while let Some(parent) = view.parent_by_child.get(&current) {
-            if !view.records.contains_key(parent) {
-                return Err(SillokError::new(
-                    "missing_parent",
-                    format!("record `{current}` points to missing parent `{parent}`"),
-                ));
-            }
-            if !seen.insert(current) {
-                return Err(SillokError::new(
-                    "parent_cycle",
-                    format!("parent cycle includes `{current}`"),
-                ));
-            }
-            current = *parent;
-        }
-    }
-    Ok(())
 }
 
 fn require_record(view: &ChronicleView<'_>, id: &ChronicleId) -> Result<(), SillokError> {
@@ -270,32 +229,4 @@ fn remove_child_from_parent(
     if remove_parent {
         view.children.remove(&parent_id);
     }
-}
-
-fn sort_indexes(view: &mut ChronicleView<'_>) {
-    for bucket in view.by_day.values_mut() {
-        sort_record_ids(&view.records, bucket);
-    }
-    for bucket in view.timeline.values_mut() {
-        sort_record_ids(&view.records, bucket);
-    }
-    for bucket in view.by_tag.values_mut() {
-        sort_record_ids(&view.records, bucket);
-    }
-    for bucket in view.by_context.values_mut() {
-        sort_record_ids(&view.records, bucket);
-    }
-    for bucket in view.by_status.values_mut() {
-        sort_record_ids(&view.records, bucket);
-    }
-}
-
-fn sort_record_ids(
-    records: &std::collections::HashMap<ChronicleId, DerivedRecord>,
-    ids: &mut [ChronicleId],
-) {
-    ids.sort_by_key(|id| match records.get(id) {
-        Some(record) => (record.created_at, record.record_id),
-        None => (crate::domain::time::Timestamp::from_millis(0), *id),
-    });
 }

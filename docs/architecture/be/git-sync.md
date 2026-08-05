@@ -30,36 +30,22 @@ The artifact path must be relative and stay inside the temporary Git worktree.
 
 Sync uses the system `git` binary through `std::process::Command`. This keeps SSH keys, credential helpers, and user Git configuration delegated to the existing environment and avoids a native Git library dependency.
 
-Each store is initialized with its own random `archive_id`, so two machines that both run `init` start from different archives. `pull` and `push` therefore **overwrite** by default and ignore `archive_id`; `run` is the merge path and only merges archives that already share an `archive_id`.
+`sync` (explicitly `sync run`) is the only data operation; it meshes both sides so neither is discarded:
 
-`sync pull` — the remote archive overwrites the local store:
+1. Export the local archive and decode the remote artifact. When both are missing, fail with `archive_missing`. When only one side has an archive, the other adopts it unchanged.
+2. Merge by `event_id` across both archives, including archives that never shared an `archive_id`. Every event from either side survives; the only refusal is the same `event_id` carrying different payloads, which fails with `sync_merge_conflict`.
+3. Topologically order events so record creation precedes later mutations, validate with `ChronicleView`, rebuild the local store (timestamped backup), and push. The push is skipped when the artifact bytes already match the remote head.
+4. On push rejection (the remote advanced concurrently), re-merge on the new head and retry once, then fail with `sync_push_rejected`.
 
-1. Export the local archive (for the summary and backup) and prepare a worktree.
-2. Decode the remote artifact. When it is absent, this is a no-op: the local store is left untouched and no error is raised.
-3. Atomically rebuild the local SQLite store from the remote archive, with a timestamped backup. The local store adopts the remote `archive_id`.
+Two invariants make cross-archive meshing safe:
 
-`sync push` — the local archive overwrites the remote:
-
-1. Export the local archive. When it is absent, fail with `archive_missing`.
-2. Prepare a worktree on the fetched remote branch head, write the local archive over the artifact, commit on top, and push. The push is always a fast-forward, so no force is needed; the artifact content is fully replaced while remote history is kept.
-3. On push rejection (the remote advanced concurrently), rebuild on the new head and retry once, then fail with `sync_push_rejected`.
-
-`sync run` — bidirectional merge for stores that share an `archive_id`:
-
-1. Export the local archive and decode the remote artifact.
-2. When both sides share an `archive_id`, merge by `event_id`, topologically order events so record creation precedes later mutations, validate with `ChronicleView`, rebuild the local store (timestamped backup), and push.
-3. When the `archive_id`s differ, the archives cannot be merged. Interactive terminals are prompted to keep the local side (push) or the remote side (pull). Non-interactive runs (`--json`, or no TTY on stdin) refuse with `sync_mismatch_needs_choice` rather than guessing.
-4. On push rejection, retry once, then fail with `sync_push_rejected`.
-
-Bootstrap path between two independently-initialized stores: run `sync pull` once so the local store adopts the remote `archive_id`; from then on both sides share an id and `sync run` merges normally.
+- **Deterministic identity.** Each `init` mints a random `archive_id`, so independently-initialized machines start from different archives. When they mesh, the identity ordered first by `(created_at, archive_id)` survives. The choice is a pure function of the two inputs, so every replica converges on a byte-identical artifact instead of ping-ponging ids through the remote.
+- **Day canonicalization.** Both machines can independently open the same calendar day under different `day_id`s. All `DayOpened` events survive the merge untouched, but the view reducer keeps the first one per day key as canonical and treats later ones as aliases, resolving every event reference through the alias map. Records from both sides therefore land under one Day record per date, and events are never rewritten, which keeps merges pure unions.
 
 ## Error Codes
 
 - `sync_remote_missing`: no sidecar config exists for this store
-- `archive_missing`: `push` (or `run`) found no local archive to upload
-- `sync_mismatch_needs_choice`: `run` hit differing `archive_id`s and cannot prompt (use `pull` or `push`)
-- `sync_aborted`: the user declined the `run` mismatch prompt
-- `sync_archive_mismatch`: emitted only by the underlying merge when archives differ (reached via the unit-tested merge path)
-- `sync_merge_conflict`: event IDs or dependencies conflict during merge
+- `archive_missing`: local and remote archives are both missing
+- `sync_merge_conflict`: one `event_id` carries different payloads, or event dependencies cannot be ordered
 - `sync_git_error`: a Git command other than push failed
 - `sync_push_rejected`: push was rejected after retry handling
