@@ -1,8 +1,8 @@
 [package]
 name = "sillok"
-version = "0.9.0"
+version = "0.10.0"
 edition = "2024"
-rust-version = "1.95"
+rust-version = "1.97.1"
 description = "A structured CLI chronicle for agentic daily work logs."
 readme = "README.md"
 repository = "https://github.com/younghyun1/sillok"
