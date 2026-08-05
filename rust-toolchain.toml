@@ -1,0 +1,4 @@
+[toolchain]
+channel = "nightly"
+# build-std in .cargo/config.toml needs the standard library sources.
+components = ["rust-src"]
