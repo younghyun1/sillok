@@ -1,9 +1,9 @@
 [package]
 name = "sillok"
-version = "0.10.0"
+version = "1.0.0"
 edition = "2024"
 rust-version = "1.97.1"
-description = "A structured CLI chronicle for agentic daily work logs."
+description = "A structured chronicle of agent work: objectives, tasks, and derived days, safe for many concurrent agents."
 readme = "README.md"
 repository = "https://github.com/younghyun1/sillok"
 documentation = "https://docs.rs/sillok"

@@ -1,378 +1,111 @@
 # Sillok
 
-Sillok is a Rust CLI for meticulous agentic work chronicles. It records daily
-objectives, completed tasks, corrections, and retractions into a structured
-archive instead of a fragile append-only text log.
-
-The name comes from Korean `sillok`, the court chronicles of Joseon. The design
-goal is similar: keep precise records of what happened, when, under what
-objective, and in what working context.
-
-## Status
-
-Sillok is an early local-first CLI. The command interface is intended to be
-stable enough for agent harnesses. The live store is a private Turso/SQLite
-database and may gain new datashape versions over time.
+Sillok is a structured chronicle of agent work: objectives, the tasks done under them, and what happened each day. Coding agents call it while they work so progress survives context loss, sessions, and machines. The name comes from the Joseon *sillok*, court chronicles that recorded what happened, when, and why.
 
 ## Install
 
-Build the binary in dev mode:
-
-```bash
-cargo build
-```
-
-Install it onto your PATH:
-
 ```bash
 cargo install --path .
+sillok guide        # the agent workflow in one page
 ```
 
-Then use:
+The binary is built for the host CPU (`.cargo/config.toml`). The first command after upgrading from 0.9 or 0.10 migrates the existing store in place; see [Upgrading from 0.x](#upgrading-from-0x).
 
-```bash
-sillok --help
-```
+## For agents
 
-## Storage
-
-By default, Sillok stores one user-global Turso/SQLite database at:
-
-```text
-$XDG_DATA_HOME/sillok/sillok.db
-```
-
-If `XDG_DATA_HOME` is unset, it falls back to:
-
-```text
-~/.local/share/sillok/sillok.db
-```
-
-Override the store with either:
-
-```bash
-sillok --store /path/to/sillok.db day
-SILLOK_STORE=/path/to/sillok.db sillok day
-```
-
-The v2 store keeps append-only events plus indexed current projections in the
-database. Normal mutations insert a new event and update affected projection
-rows instead of loading and rewriting the whole chronicle.
-
-Legacy v1 stores used a compressed private archive at `sillok.slk.zst`. Use
-`sillok migrate --store /path/to/sillok.slk.zst --target /path/to/sillok.db --yes`
-to create a v2 database. Migration always validates the legacy archive and
-creates a timestamped backup before activating the target.
-
-Git sync is archive-based, not database-based. The configured remote stores one
-`bitcode` + zstd artifact, while every device keeps its own local SQLite/Turso
-projection database. Sync config is stored beside the selected store at
-`<store>.sync.json`.
-
-## Output
-
-Quiet output is the default and is intended for agents. Successful write/action
-commands usually print nothing:
-
-```bash
-sillok note "Implemented archive-backed task logging"
-```
-
-Read commands still return compact JSON data without the response envelope. Use
-`--json` when an agent needs IDs or the full verbose response envelope:
-
-```json
-{
-  "ok": true,
-  "command": "note",
-  "generated_at": "2026-05-13T10:00:00+00:00",
-  "ids": {},
-  "data": {},
-  "warnings": []
-}
-```
-
-Failures are compact JSON by default:
-
-```json
-{"error":"sync_remote_missing","message":"sync remote is not configured"}
-```
-
-Use `--json` for verbose failure envelopes:
-
-```json
-{
-  "ok": false,
-  "command": "sync",
-  "generated_at": "2026-05-13T10:00:00+00:00",
-  "error": {
-    "code": "sync_remote_missing",
-    "message": "sync remote is not configured"
-  }
-}
-```
-
-JSON records include stable RFC3339 `created_at` and `updated_at` fields.
-Verbose success responses include `ids`, `data`, and `warnings`. Use `--human`
-for interactive summaries with local-device timestamps rendered as readable
-wall-clock time:
-
-```bash
-sillok --human day
-```
-
-## Functionality
-
-Sillok supports:
-
-- Local-first event logging into a SQLite/Turso projection store.
-- Daily task notes with status, tags, purpose text, and parent links.
-- Day objectives that can be created and completed with notes.
-- Amendments and retractions that preserve event history.
-- Day summaries, record history lookup, filtered queries, and task trees.
-- Archive integrity validation.
-- JSON export of current visible records.
-- Legacy v1 archive migration into the v2 store.
-- Explicit destructive truncation with timestamped backup.
-- Git-backed sync of the authoritative event stream as one compressed artifact.
-- Backfilled timestamps and timezone-controlled day attribution.
-- Runtime work-context capture including cwd and Git metadata when available.
-
-## Command Reference
-
-Global options:
-
-```bash
-sillok --store /path/to/sillok.db <command>
-sillok --human <command>
-sillok --json <command>
-sillok --at 2026-05-13T10:00:00Z <command>
-sillok --tz America/Denver <command>
-```
-
-Global option details:
-
-- `--store`: use a specific store path; defaults to `SILLOK_STORE` or XDG data
-  storage.
-- `--human`: print verbose readable summaries instead of quiet default output.
-- `--json`: print the verbose JSON response envelope.
-- `--at`: assign the event timestamp. Accepts RFC3339 or naive
-  `YYYY-MM-DDTHH:MM:SS`.
-- `--tz`: timezone for local day attribution and naive `--at` parsing.
-- `SILLOK_ACTOR`: optional actor label recorded on new events; defaults to
-  `agent`.
-
-Initialize the archive if absent:
-
-```bash
-sillok init
-```
-
-Record a task or work note. Notes default to `completed`; use `--status` for
-`open`, `active`, `blocked`, or `completed`:
-
-```bash
-sillok note "Implemented timerange query indexing" --tags rust,sillok
-sillok note "Investigating archive compaction" --status active --purpose "Reduce read latency"
-sillok note "Split reducer from view indexing" --parent <record_id> --tags rust,indexing
-```
-
-`note` creates a task event. Without `--parent`, Sillok opens or reuses the day
-record for the event timestamp and links the task under that day. With
-`--parent`, the task is linked under an existing active record.
-
-The status vocabulary is `open`, `active`, `blocked`, `completed`, and
-`retracted`. Prefer `sillok retract` when hiding a record so the retraction
-reason is preserved.
-
-Manage day objectives:
-
-```bash
-sillok objective add "Finish archive indexing"
-sillok objective add "Finish archive indexing" --tags rust,storage
-sillok objective complete <objective_id> --note "All scoped work is complete"
-```
-
-Objectives are day-scoped records. Completing an objective changes its derived
-status to `completed`; an optional completion note is stored on the record.
-
-Amend current derived state:
-
-```bash
-sillok amend <record_id> --text "Corrected task text"
-sillok amend <record_id> --status completed
-sillok amend <record_id> --purpose "Clarify why this work mattered"
-sillok amend <record_id> --tags rust,indexing
-```
-
-`amend` records a new event and updates only the supplied fields in the current
-projection. It requires at least one changed field.
-
-Retract a task or objective from current views:
-
-```bash
-sillok retract <record_id> --reason "Recorded against the wrong objective"
-```
-
-Retraction hides a task or objective from normal current views while preserving
-the underlying event history. Day records cannot be retracted.
-
-Read records:
-
-```bash
-sillok show <record_id>
-sillok day
-sillok day --date 2026-05-13
-sillok query --from 2026-05-13T00:00:00 --to 2026-05-13T23:59:59
-sillok query --from 2026-05-13T00:00:00 --to 2026-05-13T23:59:59 --tag rust
-sillok query --from 2026-05-13T00:00:00 --to 2026-05-13T23:59:59 --status completed
-sillok query --from 2026-05-13T00:00:00 --to 2026-05-13T23:59:59 --context /home/cyh/project
-sillok tree --root <record_id>
-sillok tree --date 2026-05-13
-```
-
-Read command behavior:
-
-- `show` returns one current record plus every event that references it.
-- `day` returns the selected day's tree, objectives, and visible non-day
-  records. Omit `--date` to use the current day in the selected timezone.
-- `query` returns visible current records created in an inclusive time range.
-  Filter by `--context`, `--tag`, or `--status`.
-- `tree` renders the visible record tree rooted at `--root`, or at the selected
-  day when `--date` is supplied.
-
-Validate and export:
-
-```bash
-sillok doctor
-sillok export json
-sillok export json --from 2026-05-13T00:00:00 --to 2026-05-13T23:59:59
-```
-
-`doctor` validates SQLite integrity and replays persisted events to confirm the
-derived projection. `export json` returns visible current records; with
-`--from` and `--to`, export is limited to records created in that inclusive
-range.
-
-Configure and run Git-backed event archive sync. Sync stores one
-`bitcode` + zstd level 22 archive artifact in the configured Git remote; the
-SQLite/Turso database remains local and is rebuilt from events when needed:
-
-```bash
-sillok sync remote set git@github.com:you/sillok-archive.git
-sillok sync remote set /path/to/archive.git --branch main --path sillok.slk.zst
-sillok sync remote show
-sillok sync
-```
-
-Sync command behavior:
-
-- `sync remote set <URL>` writes `<store>.sync.json`; defaults are branch
-  `main` and artifact path `sillok.slk.zst`.
-- `sync remote show` prints the configured URL, branch, artifact path, and
-  sidecar path.
-- `sync` (or the explicit `sync run`) meshes the two sides: events union by
-  `event_id`, including archives that never shared an `archive_id`, so nothing
-  is discarded from either side. The merged archive rebuilds the local database
-  with a timestamped backup and is pushed to the remote when its content
-  changed. When only one side has an archive, the other simply adopts it.
-
-When two independently-initialized archives mesh, the older `archive_id`
-survives deterministically, so every replica converges on the same artifact.
-Days opened independently on both machines collapse into one Day record per
-date. The only refusal is a true conflict: the same `event_id` carrying
-different payloads fails with `sync_merge_conflict`. Git authentication is
-delegated to the user's existing `git` setup.
-
-Migrate a legacy v1 archive:
-
-```bash
-sillok --store /path/to/sillok.slk.zst migrate --dry-run
-sillok --store /path/to/sillok.slk.zst migrate --target /path/to/sillok.db --yes
-```
-
-`migrate --dry-run` validates the source archive and reports the migration plan.
-Writing a v2 target requires `--yes`. If `--target` is omitted, Sillok writes
-`sillok.db` beside the legacy archive.
-
-Reset the archive only when an operator explicitly asks for a full reset. This
-creates a timestamped backup first:
-
-```bash
-sillok truncate --yes
-```
-
-`truncate` is destructive and requires `--yes`. It backs up the current v2
-database, removes it, then initializes a fresh archive.
-
-Backfill with explicit timestamps and timezone attribution:
-
-```bash
-sillok --tz Asia/Seoul --at 2026-05-13T21:30:00 note "Backfilled a late task"
-sillok --at 2026-05-13T21:30:00+09:00 note "Backfilled a Seoul-time task"
-```
-
-RFC3339 timestamps keep their explicit offset. Naive timestamps are interpreted
-in the selected `--tz`, or in the system-local timezone when `--tz` is omitted.
-
-## Agent Integration
-
-Add a short Sillok section to a repository `AGENTS.md` so coding agents record
-objectives and completed work while they operate:
+Add this to a repository's `AGENTS.md` or `CLAUDE.md`:
 
 ````markdown
 ## Sillok
-
-Use Sillok for substantive agentic work. Record objectives, completed tasks,
-and corrections during the session instead of relying on chat history. Quiet
-output is the default for agents; use `--json` only when IDs or the full
-response envelope are needed, and `--human` only for summaries intended for a
-person.
-Never run `sillok truncate --yes` unless the user explicitly asks to reset the
-whole archive.
+Record objectives, completed work, and corrections with Sillok while you work; do not rely on chat history. Run `sillok status` at session start to resume, and `sillok guide` for the full workflow.
 
 ```bash
-sillok objective add "Ship the storage/indexing refactor"
-sillok note "Split reducer from view indexing" --parent <objective_id> --tags rust,sillok
-sillok amend <record_id> --status completed
-sillok note "Fixed relink regression coverage" --parent <objective_id> --tags tests
-sillok show <record_id>
-sillok query --from 2026-05-13T00:00:00 --to 2026-05-13T23:59:59 --tag rust
-sillok objective complete <objective_id> --note "Scoped work is complete"
-sillok day --human
+obj=$(sillok objective add "Ship the storage refactor" --tags rust)
+sillok note "Split reducer from indexing" --parent "$obj" --tags rust
+sillok amend <id> --status completed --note "Root cause was clock skew"
+sillok objective complete "$obj" --note "Scoped work is done"
+sillok day
 ```
 
-Use `--at` for backfilled work and `--tz` when day attribution matters:
-
-```bash
-sillok --tz America/Denver --at 2026-05-13T16:45:00 note "Backfilled release notes" --tags docs
-```
+Never run `sillok reset --yes` unless the user explicitly asks to erase the chronicle.
 ````
+
+The CLI is shaped for that caller:
+
+- **Writes print the affected id** and nothing else, so `id=$(sillok note ...)` works.
+- **Reads print compact JSON**: empty fields are omitted and the work context appears only with `--full`. `--json` adds the `{ok, command, generated_at, data, warnings}` envelope and `--human` prints text.
+- **Errors are JSON on stderr**, `{"error":"code","message":"..."}`, with exit code 1, or 2 for usage errors. Codes are stable across 1.x.
+- **Concurrency is safe**: many agents can read and write one store at once; SQLite WAL mode lets readers proceed during a write and makes writers wait instead of failing.
+- **Resuming is one command**: `sillok status` lists open objectives and recent work for the current repository.
+
+## Model
+
+Records are objectives or tasks. Any record can sit under another (objectives only under objectives), so an objective can collect work across many days. Days are not stored: `sillok day --date D` shows every record that had an event on D in the chosen timezone, with an `activity` list (`recorded`, `amended`, `completed`, `moved`, `retracted`, `restored`) and its ancestors for context. A task started Monday and finished Wednesday appears on both days.
+
+Every change is an immutable event; current records are a projection that `sillok doctor` checks against a full replay and `doctor --repair` rebuilds. Retraction hides a record but keeps its history, and `restore` brings it back. Status `retracted` can only be set by `retract`, which requires a reason.
+
+## Commands
+
+| Command | Purpose |
+| --- | --- |
+| `note <text> [--parent] [--status] [--tags] [--purpose]` | Record a task (default `completed`) |
+| `objective add <text> [--parent] [--tags] [--status]` | Start an objective (default `active`) |
+| `objective complete <id> [--note]` | Complete an objective |
+| `objective list [--all] [--limit]` | Open objectives |
+| `amend <id> [--text] [--status] [--purpose\|--clear-purpose] [--tags\|--clear-tags] [--note]` | Change fields |
+| `move <id> (--parent <id>\|--top)` | Re-parent; cycles are rejected |
+| `retract <id> --reason` / `restore <id>` | Hide or unhide |
+| `show <id>` | Record, children, and full event history |
+| `day [--date]` | A day as a tree with activity |
+| `tree <id>` | A record and its visible descendants |
+| `query [--since\|--from/--to\|--date] [--tag] [--status] [--kind] [--open] [--text] [--context] [--limit]` | Search |
+| `status [--all] [--limit]` | Open objectives and recent work here |
+| `export [--events] [--from] [--to]` | JSON lines: records, or raw events (the portable archive) |
+| `import <path> [--dry-run]` | Merge a 0.x store or archive, an events export, or a sync directory |
+| `doctor [--repair]` | Integrity check and replay comparison |
+| `sync [--dry-run]`, `sync remote set <url> [--branch] [--dir]`, `sync remote show` | Git sync |
+| `reset --yes` | Back up, then empty the store |
+| `guide` | Agent usage guide |
+
+Global options: `--store`, `--tz`, `--at` (backfill: RFC 3339, or `YYYY-MM-DDTHH:MM[:SS]` in `--tz`), `--full`, `--json`, `--human`.
+
+Environment: `SILLOK_STORE` (default `$XDG_DATA_HOME/sillok/sillok.db`), `SILLOK_TZ` (default: system zone), `SILLOK_ACTOR` (default `agent`), `SILLOK_SESSION` (recorded on each event), `SILLOK_OUTPUT` (`compact`, `json`, or `human`), `SILLOK_LOG` (tracing filter; JSON logs go to stderr).
+
+The 0.10 spellings `tree --root`, `export json`, `migrate`, `truncate`, and `sync run` still work as hidden aliases.
+
+## Sync
+
+```bash
+sillok sync remote set git@github.com:you/sillok-archive.git
+sillok sync
+```
+
+The remote holds `sillok/manifest.json` and one plain-text JSON-lines file per month (`sillok/events/2026-09.jsonl`), sorted by recorded time. New events append to the current month, so each sync commit is a small readable diff and Git's own compression does the rest. Sync unions events by id: pulls what the local store lacks, pushes what the remote lacks, and rewrites only the months that changed. Events of a type this version does not know are kept and pushed back byte for byte. If one event id carries different bytes on two machines, both keep the lexicographically smaller bytes and report a warning; sync never stops for a human to resolve a conflict. Git runs non-interactively (`GIT_TERMINAL_PROMPT=0`, SSH `BatchMode`), so missing credentials fail fast instead of hanging an agent.
+
+## Upgrading from 0.x
+
+The first command run against a 0.9 or 0.10 store migrates it: events are converted to the 1.0 format, the old database is kept as `sillok.db.v2-<ms>.bak.db`, and the command's output carries a one-line notice. Concurrent first runs wait for one migration. On the first sync, the 0.10 artifact (`sillok.slk.zst`) is imported, the remote switches to the monthly layout, and the old file is removed. Upgrade every machine; a 0.10 binary cannot read a 1.0 store or remote.
+
+The conversion is deterministic, so machines that migrate independently produce identical events and sync cleanly. Accepted differences from 0.10:
+
+- Day records disappear; records that were directly under a day become top-level.
+- A task recorded under a parent from an earlier day now shows on the day it was recorded, not the parent's day.
+- An objective's completion note moves from `purpose` to `note`.
+- Git remote URLs lose any embedded `user:token@` credentials.
+
+`sillok import <file>` also accepts a v1 `sillok.slk.zst` archive or a 0.10 sync artifact directly.
+
+## Compatibility
+
+Semantic versioning covers the command line (commands, flags, output fields, error codes, exit codes), the event format, and the sync layout. The Rust library target exists for tests and tools and is not covered. Event format evolution rules are in [docs/architecture/be/event-format.md](docs/architecture/be/event-format.md).
 
 ## Development
 
-Run checks:
-
 ```bash
 cargo fmt
-cargo clippy --all-targets --all-features
+cargo clippy --all-targets
 cargo test
+cargo run --example store_probe   # 50k-record latency probe
 ```
 
-Project constraints:
-
-- No `unwrap()` or `expect()` in project source or tests.
-- Keep modules under 300 lines where practical.
-- Keep folder `mod.rs` files to module declarations only.
-- Prefer explicit error handling and structured tracing.
-- Do not treat the live database or legacy archive serialization as a public
-  standard; use CLI export/migration commands for compatibility.
-
-## Design Notes
-
-See [docs/plan/sillok-cli-chronicle-design.md](docs/plan/sillok-cli-chronicle-design.md)
-for the initial implementation plan and data model notes. See
-[docs/architecture/be/turso-store.md](docs/architecture/be/turso-store.md),
-[docs/architecture/be/view-indexing.md](docs/architecture/be/view-indexing.md),
-and [docs/architecture/be/git-sync.md](docs/architecture/be/git-sync.md) for
-backend architecture notes.
+Conventions: no `unwrap`, `expect`, or `?`; errors are handled with explicit `match`. Files stay under 300 lines and every `mod.rs` only declares modules. Backend design notes live in [docs/architecture/be](docs/architecture/be), plans in [docs/planning](docs/planning).

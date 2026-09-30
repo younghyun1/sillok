@@ -98,7 +98,12 @@ pub fn attempt(
         Ok(value) => value,
         Err(error) => return Err(error),
     };
-    let manifest = Manifest::new(identity.archive_id, identity.created_at);
+    let mut manifest = Manifest::new(identity.archive_id, identity.created_at);
+    // Never downgrade: a newer writer's compatible manifest keeps its versions.
+    if let Some(existing) = &remote.manifest {
+        manifest.format_version = manifest.format_version.max(existing.format_version);
+        manifest.min_reader_version = manifest.min_reader_version.max(existing.min_reader_version);
+    }
     let manifest_stale = remote.manifest.as_ref() != Some(&manifest);
     report.months = dirty.iter().cloned().collect();
     report.pulled = pull.additions.len();

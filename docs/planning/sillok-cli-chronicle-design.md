@@ -1,5 +1,7 @@
 # Sillok Agent Chronicle CLI
 
+> Historical: the 0.1 design. The 1.0 design is in [v1-release.md](v1-release.md) and [docs/architecture/be](../architecture/be).
+
 ## Summary
 
 Sillok is a Rust CLI for agentic daily work logging. It records natural-language work notes, objectives, amendments, and retractions into one user-global local store while keeping successful write output silent by default and exposing deterministic JSON for autonomous harnesses when requested.
