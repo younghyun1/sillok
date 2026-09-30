@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.1
+
+### Fixed
+
+- `sillok sync` failed with `pathspec 'sillok.slk.zst' did not match any files` whenever it had events to push after an earlier sync had already removed the 0.10 artifact, which is the normal state for every machine upgraded after the first. The removal is now staged with `git rm --cached --ignore-unmatch`, which is a no-op when the file is gone. Workaround on 1.0.0: `sillok sync remote set <url>` rewrites the config without `legacy_path`.
+
 ## 1.0.0
 
 1.0 rebuilds Sillok for agents running in parallel and for a chronicle that has to stay readable for years. Existing 0.9/0.10 stores and sync remotes migrate automatically.
