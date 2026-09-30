@@ -234,7 +234,7 @@ fn day_key(date: &str, timezone: &str) -> DayKey {
 }
 
 fn context(index: usize) -> WorkContext {
-    if index % 3 == 0 {
+    if index.is_multiple_of(3) {
         WorkContext {
             cwd: Some("/home/fixture/scratch".to_string()),
             git_root: None,
