@@ -1,21 +1,22 @@
 [package]
 name = "sillok"
-version = "0.10.0"
+version = "1.0.0"
 edition = "2024"
 rust-version = "1.97.1"
-description = "A structured CLI chronicle for agentic daily work logs."
+description = "A structured chronicle of agent work: objectives, tasks, and derived days, safe for many concurrent agents."
 readme = "README.md"
 repository = "https://github.com/younghyun1/sillok"
-homepage = "https://github.com/younghyun1/sillok"
 documentation = "https://docs.rs/sillok"
 license = "MIT OR Apache-2.0"
-keywords = ["agent", "archive", "cli", "journal", "tasks"]
+keywords = ["agent", "chronicle", "cli", "journal", "tasks"]
 categories = ["command-line-utilities", "development-tools"]
 include = [
     "Cargo.lock",
     "Cargo.toml",
+    "CHANGELOG.md",
     "README.md",
     "docs/**",
+    "examples/**",
     "src/**",
     "tests/**",
 ]
@@ -29,25 +30,45 @@ strip = true
 lto = true
 panic = "abort"
 
+[lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+# House style handles every Result/Option with an explicit match instead of `?`
+# or the unwrap_or family, so the lints that suggest those shortcuts are off.
+question_mark = "allow"
+single_match = "allow"
+manual_unwrap_or = "allow"
+manual_unwrap_or_default = "allow"
+manual_ok_err = "allow"
+
 [dependencies]
-bitcode = "0.6.9"
-chrono = { version = "0.4.45", features = ["serde"] }
-chrono-tz = "0.10.4"
-clap = { version = "4.6.5", features = ["derive", "env"] }
+# bitcode and zstd only decode 0.9/0.10 data during import; 1.0 persists JSON.
+bitcode = { version = "0.6.9", default-features = false, features = ["std", "derive"] }
+chrono = { version = "0.4.45", default-features = false, features = ["std", "clock"] }
+chrono-tz = { version = "0.10.4", default-features = false, features = ["std"] }
+clap = { version = "4.6.7", default-features = false, features = ["std", "derive", "env", "help", "usage", "error-context", "suggestions"] }
 directories = "6.0.0"
-fs2 = "0.4.3"
-nutype = { version = "0.7.0", features = ["serde"] }
-serde = { version = "1.0.229", features = ["derive"] }
-serde_json = "1.0.151"
-tokio = { version = "1.53.1", features = ["full"] }
-tracing = "0.1.44"
-tracing-subscriber = { version = "0.3.23", features = ["env-filter", "fmt", "json"] }
-turso = "0.7.2"
-uuid = { version = "1.24.0", features = ["serde", "v7"] }
-zstd = "0.13.3"
+iana-time-zone = "0.1.65"
+nutype = { version = "0.8.0", default-features = false, features = ["std"] }
+rusqlite = { version = "0.40.2", default-features = false, features = ["bundled", "cache"] }
+serde = { version = "1.0.229", default-features = false, features = ["std", "derive"] }
+serde_json = { version = "1.0.151", default-features = false, features = ["std", "preserve_order"] }
+thiserror = "2.0.21"
+tracing = { version = "0.1.44", default-features = false, features = ["std", "release_max_level_info"] }
+tracing-subscriber = { version = "0.3.23", default-features = false, features = ["std", "fmt", "json", "env-filter", "smallvec"] }
+uuid = { version = "1.26.1", default-features = false, features = ["std", "v7", "v5"] }
+zstd = { version = "0.14.0", default-features = false }
+
+# jemalloc's background purge thread needs a pthread-based build; on macOS the
+# option only prints a warning to stderr on every run, so enable it on Linux only.
+[target.'cfg(target_os = "linux")'.dependencies]
+tikv-jemallocator = { version = "0.7.0", features = ["background_threads", "unprefixed_malloc_on_supported_platforms"] }
+
+[target.'cfg(not(target_os = "linux"))'.dependencies]
+tikv-jemallocator = { version = "0.7.0", features = ["unprefixed_malloc_on_supported_platforms"] }
 
 [dev-dependencies]
+arbitrary = { version = "1.4.2", features = ["derive"] }
 assert_cmd = "2.2.2"
-derive_fuzztest = { version = "0.1.4", features = ["proptest"] }
-predicates = "3.1.4"
+derive_fuzztest = { version = "0.1.4", default-features = false, features = ["proptest"] }
 tempfile = "3.27.0"

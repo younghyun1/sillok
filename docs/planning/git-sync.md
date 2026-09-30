@@ -1,5 +1,7 @@
 # Git Sync Implementation Plan
 
+> Historical: the 0.6 to 0.10 single-artifact sync. 1.0 replaced it; see [docs/architecture/be/git-sync.md](../architecture/be/git-sync.md).
+
 ## Objective
 
 Add a Git-backed sync command group that stores Sillok's authoritative event archive as a single max-compressed `bitcode` plus `zstd` artifact in a Git remote. The local SQLite/Turso database remains the live projection store.

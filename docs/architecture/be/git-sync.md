@@ -1,51 +1,46 @@
-# Git Sync Backend
+# Git sync
 
-Sillok sync stores the authoritative append-only event archive as one Git-tracked artifact. The live Turso/SQLite database remains a local projection cache: normal commands read and mutate SQLite, while sync exports events, merges archives, and rebuilds projections locally.
+Sync shares the event log between machines through any Git remote the user can push to. Git authentication, transport, and history are delegated to the system `git`; the SQLite store never leaves the machine.
 
-## Artifact
+## Layout
 
-- Default branch: `main`
-- Default path: `sillok.slk.zst`
-- Encoding: `Archive` encoded with `bitcode`, then zstd-compressed at level `22`
-- Commit message: `sync: update sillok archive`
+```text
+<dir>/manifest.json          {"format":"sillok-archive","format_version":1,"min_reader_version":1,"archive_id":...,"created_at":...}
+<dir>/events/YYYY-MM.jsonl   canonical event lines, bucketed by the UTC month of recorded_at
+```
 
-The artifact is intentionally not encrypted. Git remote access controls and the user's existing Git authentication handle transport security.
+`<dir>` defaults to `sillok`. Lines are sorted by `(recorded_at, event_id)`. Because `recorded_at` is the write time, new events land at the end of the current month's file: a sync commit is usually a few appended lines, old months never change, and Git's delta compression keeps the repository small. Files are uncompressed text so `git log -p` reads like a journal.
 
 ## Configuration
 
-Each store has a sidecar file at `<store>.sync.json`:
+`<store>.sync.json`:
 
 ```json
-{
-  "schema_version": 1,
-  "url": "/path/or/url/to/remote.git",
-  "branch": "main",
-  "path": "sillok.slk.zst"
-}
+{"schema_version": 2, "url": "git@github.com:you/archive.git", "branch": "main", "dir": "sillok"}
 ```
 
-The artifact path must be relative and stay inside the temporary Git worktree.
+A 0.10 sidecar (`schema_version: 1` with `path`) is upgraded on first read; its `path` becomes `legacy_path`. The URL and branch may not start with `-`, the branch may not contain whitespace or `:`, and `dir`/`legacy_path` must be relative paths inside the repository, so config values can never be read as Git options or escape the worktree.
 
-## Operation
+## One attempt
 
-Sync uses the system `git` binary through `std::process::Command`. This keeps SSH keys, credential helpers, and user Git configuration delegated to the existing environment and avoids a native Git library dependency.
+1. Read local event ids, recorded times, and bytes.
+2. Create a temporary repository, shallow-fetch the branch if it exists, and read the layout (bounded: 1 MiB per line, 1 GiB total). A manifest with `min_reader_version` above this build's reader version stops sync with `unsupported_format`.
+3. If `legacy_path` exists in the checkout, decode and convert the 0.10 artifact.
+4. Plan the pull with `domain::merge::plan`: remote and legacy events the local store lacks, plus conflicting ids whose remote bytes are smaller.
+5. Apply the pull in one transaction (insert events, rebuild the projection). Nothing is rebuilt when nothing arrived.
+6. Mark a month dirty when any event in it differs from the remote; rewrite only dirty months, the manifest (the older `(created_at, archive_id)` identity wins, so replicas agree), and delete the legacy artifact.
+7. Commit (`sync: +N events (YYYY-MM)`) and push. Nothing is committed when nothing changed.
 
-`sync` (explicitly `sync run`) is the only data operation; it meshes both sides so neither is discarded:
+A rejected push (the remote moved) is retryable: up to 3 attempts with exponential backoff and jitter, each starting from step 1. `--dry-run` stops after step 6 and reports counts.
 
-1. Export the local archive and decode the remote artifact. When both are missing, fail with `archive_missing`. When only one side has an archive, the other adopts it unchanged.
-2. Merge by `event_id` across both archives, including archives that never shared an `archive_id`. Every event from either side survives; the only refusal is the same `event_id` carrying different payloads, which fails with `sync_merge_conflict`.
-3. Topologically order events so record creation precedes later mutations, validate with `ChronicleView`, rebuild the local store (timestamped backup), and push. The push is skipped when the artifact bytes already match the remote head.
-4. On push rejection (the remote advanced concurrently), re-merge on the new head and retry once, then fail with `sync_push_rejected`.
+## Non-interactive Git
 
-Two invariants make cross-archive meshing safe:
+Every Git command runs with `GIT_TERMINAL_PROMPT=0` and, unless the user set `GIT_SSH_COMMAND`, `ssh -o BatchMode=yes`, so missing credentials fail with `sync_git_error` instead of waiting for input an agent cannot give. Commits disable signing and set a fixed `sillok` identity.
 
-- **Deterministic identity.** Each `init` mints a random `archive_id`, so independently-initialized machines start from different archives. When they mesh, the identity ordered first by `(created_at, archive_id)` survives. The choice is a pure function of the two inputs, so every replica converges on a byte-identical artifact instead of ping-ponging ids through the remote.
-- **Day canonicalization.** Both machines can independently open the same calendar day under different `day_id`s. All `DayOpened` events survive the merge untouched, but the view reducer keeps the first one per day key as canonical and treats later ones as aliases, resolving every event reference through the alias map. Records from both sides therefore land under one Day record per date, and events are never rewritten, which keeps merges pure unions.
+## Error codes
 
-## Error Codes
-
-- `sync_remote_missing`: no sidecar config exists for this store
-- `archive_missing`: local and remote archives are both missing
-- `sync_merge_conflict`: one `event_id` carries different payloads, or event dependencies cannot be ordered
-- `sync_git_error`: a Git command other than push failed
-- `sync_push_rejected`: push was rejected after retry handling
+- `sync_remote_missing`: no sidecar
+- `sync_config_error`: invalid sidecar values
+- `sync_git_error`: a Git command other than push failed (auth, network)
+- `sync_push_rejected`: the remote kept moving through every retry
+- `unsupported_format`: the remote was written by a newer, incompatible Sillok

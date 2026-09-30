@@ -1,0 +1,509 @@
+{
+  "archive_id": "019e20c7-6900-7000-8101-010101010101",
+  "created_at": "2026-05-13T10:00:00+00:00",
+  "events": [
+    {
+      "actor": "fixture",
+      "context": {
+        "cwd": "/home/fixture/scratch",
+        "git_branch": null,
+        "git_head": null,
+        "git_remote": null,
+        "git_root": null
+      },
+      "event_at": "2026-05-13T10:00:00+00:00",
+      "event_id": "019e20c7-6964-7064-8040-404040404040",
+      "kind": {
+        "archive_id": "019e20c7-6900-7000-8101-010101010101",
+        "type": "archive_initialized"
+      },
+      "recorded_at": "2026-05-13T10:00:00.005+00:00"
+    },
+    {
+      "actor": "fixture",
+      "context": {
+        "cwd": "/home/fixture/repo/src",
+        "git_branch": "main",
+        "git_head": "0123456789abcdef0123456789abcdef01234567",
+        "git_remote": "https://user:secret@example.com/fixture/repo.git",
+        "git_root": "/home/fixture/repo"
+      },
+      "event_at": "2026-05-13T10:01:00+00:00",
+      "event_id": "019e20c7-6965-7065-8040-404040404040",
+      "kind": {
+        "day_id": "019e20c7-6901-7001-8202-020202020202",
+        "day_key": {
+          "date": "2026-05-13",
+          "timezone": "local"
+        },
+        "type": "day_opened"
+      },
+      "recorded_at": "2026-05-13T10:01:00.005+00:00"
+    },
+    {
+      "actor": "fixture",
+      "context": {
+        "cwd": "/home/fixture/repo/src",
+        "git_branch": "main",
+        "git_head": "0123456789abcdef0123456789abcdef01234567",
+        "git_remote": "https://user:secret@example.com/fixture/repo.git",
+        "git_root": "/home/fixture/repo"
+      },
+      "event_at": "2026-05-13T10:02:00+00:00",
+      "event_id": "019e20c7-6966-7066-8040-404040404040",
+      "kind": {
+        "day_id": "019e20c7-6901-7001-8202-020202020202",
+        "objective_id": "019e20c7-6904-7004-8505-050505050505",
+        "tags": [
+          "rust",
+          "storage"
+        ],
+        "text": "Ship the storage refactor",
+        "type": "objective_added"
+      },
+      "recorded_at": "2026-05-13T10:02:00.005+00:00"
+    },
+    {
+      "actor": "fixture",
+      "context": {
+        "cwd": "/home/fixture/scratch",
+        "git_branch": null,
+        "git_head": null,
+        "git_remote": null,
+        "git_root": null
+      },
+      "event_at": "2026-05-13T10:03:00+00:00",
+      "event_id": "019e20c7-6967-7067-8040-404040404040",
+      "kind": {
+        "day_id": "019e20c7-6901-7001-8202-020202020202",
+        "parent_id": "019e20c7-6904-7004-8505-050505050505",
+        "purpose": "Keep replay cheap",
+        "status": "completed",
+        "tags": [
+          "rust"
+        ],
+        "task_id": "019e20c7-6905-7005-8606-060606060606",
+        "text": "Split reducer from indexing",
+        "type": "task_recorded"
+      },
+      "recorded_at": "2026-05-13T10:03:00.005+00:00"
+    },
+    {
+      "actor": "fixture",
+      "context": {
+        "cwd": "/home/fixture/repo/src",
+        "git_branch": "main",
+        "git_head": "0123456789abcdef0123456789abcdef01234567",
+        "git_remote": "https://user:secret@example.com/fixture/repo.git",
+        "git_root": "/home/fixture/repo"
+      },
+      "event_at": "2026-05-13T10:04:00+00:00",
+      "event_id": "019e20c7-6968-7068-8040-404040404040",
+      "kind": {
+        "day_id": "019e20c7-6902-7002-8303-030303030303",
+        "day_key": {
+          "date": "2026-05-13",
+          "timezone": "America/Denver"
+        },
+        "type": "day_opened"
+      },
+      "recorded_at": "2026-05-13T10:04:00.005+00:00"
+    },
+    {
+      "actor": "fixture",
+      "context": {
+        "cwd": "/home/fixture/repo/src",
+        "git_branch": "main",
+        "git_head": "0123456789abcdef0123456789abcdef01234567",
+        "git_remote": "https://user:secret@example.com/fixture/repo.git",
+        "git_root": "/home/fixture/repo"
+      },
+      "event_at": "2026-05-13T10:05:00+00:00",
+      "event_id": "019e20c7-6969-7069-8040-404040404040",
+      "kind": {
+        "day_id": "019e20c7-6902-7002-8303-030303030303",
+        "parent_id": "019e20c7-6902-7002-8303-030303030303",
+        "purpose": null,
+        "status": "open",
+        "tags": [],
+        "task_id": "019e20c7-6906-7006-8707-070707070707",
+        "text": "Backfilled with an explicit timezone",
+        "type": "task_recorded"
+      },
+      "recorded_at": "2026-05-13T10:05:00.005+00:00"
+    },
+    {
+      "actor": "fixture",
+      "context": {
+        "cwd": "/home/fixture/scratch",
+        "git_branch": null,
+        "git_head": null,
+        "git_remote": null,
+        "git_root": null
+      },
+      "event_at": "2026-05-13T10:06:00+00:00",
+      "event_id": "019e20c7-696a-706a-8040-404040404040",
+      "kind": {
+        "purpose": "Exercise amend",
+        "record_id": "019e20c7-6906-7006-8707-070707070707",
+        "status": "active",
+        "tags": [
+          "docs",
+          "time"
+        ],
+        "text": "Backfilled with an explicit tz",
+        "type": "task_amended"
+      },
+      "recorded_at": "2026-05-13T10:06:00.005+00:00"
+    },
+    {
+      "actor": "fixture",
+      "context": {
+        "cwd": "/home/fixture/repo/src",
+        "git_branch": "main",
+        "git_head": "0123456789abcdef0123456789abcdef01234567",
+        "git_remote": "https://user:secret@example.com/fixture/repo.git",
+        "git_root": "/home/fixture/repo"
+      },
+      "event_at": "2026-05-13T10:07:00+00:00",
+      "event_id": "019e20c7-696b-706b-8040-404040404040",
+      "kind": {
+        "day_id": "019e20c7-6901-7001-8202-020202020202",
+        "parent_id": "019e20c7-6901-7001-8202-020202020202",
+        "purpose": null,
+        "status": "completed",
+        "tags": [],
+        "task_id": "019e20c7-6908-7008-8909-090909090909",
+        "text": "Recorded against the wrong objective",
+        "type": "task_recorded"
+      },
+      "recorded_at": "2026-05-13T10:07:00.005+00:00"
+    },
+    {
+      "actor": "fixture",
+      "context": {
+        "cwd": "/home/fixture/repo/src",
+        "git_branch": "main",
+        "git_head": "0123456789abcdef0123456789abcdef01234567",
+        "git_remote": "https://user:secret@example.com/fixture/repo.git",
+        "git_root": "/home/fixture/repo"
+      },
+      "event_at": "2026-05-13T10:08:00+00:00",
+      "event_id": "019e20c7-696c-706c-8040-404040404040",
+      "kind": {
+        "reason": "Wrong objective",
+        "record_id": "019e20c7-6908-7008-8909-090909090909",
+        "type": "task_retracted"
+      },
+      "recorded_at": "2026-05-13T10:08:00.005+00:00"
+    },
+    {
+      "actor": "fixture",
+      "context": {
+        "cwd": "/home/fixture/scratch",
+        "git_branch": null,
+        "git_head": null,
+        "git_remote": null,
+        "git_root": null
+      },
+      "event_at": "2026-05-13T10:09:00+00:00",
+      "event_id": "019e20c7-696d-706d-8040-404040404040",
+      "kind": {
+        "child_id": "019e20c7-6906-7006-8707-070707070707",
+        "parent_id": "019e20c7-6904-7004-8505-050505050505",
+        "type": "task_linked"
+      },
+      "recorded_at": "2026-05-13T10:09:00.005+00:00"
+    },
+    {
+      "actor": "fixture",
+      "context": {
+        "cwd": "/home/fixture/repo/src",
+        "git_branch": "main",
+        "git_head": "0123456789abcdef0123456789abcdef01234567",
+        "git_remote": "https://user:secret@example.com/fixture/repo.git",
+        "git_root": "/home/fixture/repo"
+      },
+      "event_at": "2026-05-13T10:10:00+00:00",
+      "event_id": "019e20c7-696e-706e-8040-404040404040",
+      "kind": {
+        "note": "All scoped work is complete",
+        "objective_id": "019e20c7-6904-7004-8505-050505050505",
+        "type": "objective_completed"
+      },
+      "recorded_at": "2026-05-13T10:10:00.005+00:00"
+    },
+    {
+      "actor": "fixture",
+      "context": {
+        "cwd": "/home/fixture/repo/src",
+        "git_branch": "main",
+        "git_head": "0123456789abcdef0123456789abcdef01234567",
+        "git_remote": "https://user:secret@example.com/fixture/repo.git",
+        "git_root": "/home/fixture/repo"
+      },
+      "event_at": "2026-05-13T10:11:00+00:00",
+      "event_id": "019e20c7-696f-706f-8040-404040404040",
+      "kind": {
+        "day_id": "019e20c7-6903-7003-8404-040404040404",
+        "day_key": {
+          "date": "2026-05-14",
+          "timezone": "UTC"
+        },
+        "type": "day_opened"
+      },
+      "recorded_at": "2026-05-13T10:11:00.005+00:00"
+    },
+    {
+      "actor": "fixture",
+      "context": {
+        "cwd": "/home/fixture/scratch",
+        "git_branch": null,
+        "git_head": null,
+        "git_remote": null,
+        "git_root": null
+      },
+      "event_at": "2026-05-13T10:12:00+00:00",
+      "event_id": "019e20c7-6970-7070-8040-404040404040",
+      "kind": {
+        "day_id": "019e20c7-6903-7003-8404-040404040404",
+        "parent_id": "019e20c7-6905-7005-8606-060606060606",
+        "purpose": null,
+        "status": "blocked",
+        "tags": [
+          "followup"
+        ],
+        "task_id": "019e20c7-6907-7007-8808-080808080808",
+        "text": "Follow-up on the next day",
+        "type": "task_recorded"
+      },
+      "recorded_at": "2026-05-13T10:12:00.005+00:00"
+    },
+    {
+      "actor": "fixture",
+      "context": {
+        "cwd": "/home/fixture/repo/src",
+        "git_branch": "main",
+        "git_head": "0123456789abcdef0123456789abcdef01234567",
+        "git_remote": "https://user:secret@example.com/fixture/repo.git",
+        "git_root": "/home/fixture/repo"
+      },
+      "event_at": "2026-05-13T10:13:00+00:00",
+      "event_id": "019e20c7-6971-7071-8040-404040404040",
+      "kind": {
+        "day_id": "019e20c7-6903-7003-8404-040404040404",
+        "parent_id": "019e20c7-6903-7003-8404-040404040404",
+        "purpose": null,
+        "status": "open",
+        "tags": [],
+        "task_id": "019e20c7-6909-7009-8a0a-0a0a0a0a0a0a",
+        "text": "Detached from its day",
+        "type": "task_recorded"
+      },
+      "recorded_at": "2026-05-13T10:13:00.005+00:00"
+    },
+    {
+      "actor": "fixture",
+      "context": {
+        "cwd": "/home/fixture/repo/src",
+        "git_branch": "main",
+        "git_head": "0123456789abcdef0123456789abcdef01234567",
+        "git_remote": "https://user:secret@example.com/fixture/repo.git",
+        "git_root": "/home/fixture/repo"
+      },
+      "event_at": "2026-05-13T10:14:00+00:00",
+      "event_id": "019e20c7-6972-7072-8040-404040404040",
+      "kind": {
+        "child_id": "019e20c7-6909-7009-8a0a-0a0a0a0a0a0a",
+        "type": "task_unlinked"
+      },
+      "recorded_at": "2026-05-13T10:14:00.005+00:00"
+    },
+    {
+      "actor": "fixture",
+      "context": {
+        "cwd": "/home/fixture/scratch",
+        "git_branch": null,
+        "git_head": null,
+        "git_remote": null,
+        "git_root": null
+      },
+      "event_at": "2026-05-13T10:15:00+00:00",
+      "event_id": "019e20c7-6973-7073-8040-404040404040",
+      "kind": {
+        "purpose": null,
+        "record_id": "019e20c7-6903-7003-8404-040404040404",
+        "status": "retracted",
+        "tags": null,
+        "text": null,
+        "type": "task_amended"
+      },
+      "recorded_at": "2026-05-13T10:15:00.005+00:00"
+    }
+  ],
+  "visible_records": [
+    {
+      "context": {
+        "cwd": "/home/fixture/repo/src",
+        "git_branch": "main",
+        "git_head": "0123456789abcdef0123456789abcdef01234567",
+        "git_remote": "https://user:secret@example.com/fixture/repo.git",
+        "git_root": "/home/fixture/repo"
+      },
+      "created_at": "2026-05-13T10:01:00+00:00",
+      "day_id": "019e20c7-6901-7001-8202-020202020202",
+      "day_key": {
+        "date": "2026-05-13",
+        "timezone": "local"
+      },
+      "kind": "day",
+      "parent_id": null,
+      "purpose": null,
+      "record_id": "019e20c7-6901-7001-8202-020202020202",
+      "retraction_reason": null,
+      "status": "open",
+      "tags": [],
+      "text": "Day 2026-05-13",
+      "updated_at": "2026-05-13T10:01:00.005+00:00"
+    },
+    {
+      "context": {
+        "cwd": "/home/fixture/repo/src",
+        "git_branch": "main",
+        "git_head": "0123456789abcdef0123456789abcdef01234567",
+        "git_remote": "https://user:secret@example.com/fixture/repo.git",
+        "git_root": "/home/fixture/repo"
+      },
+      "created_at": "2026-05-13T10:02:00+00:00",
+      "day_id": "019e20c7-6901-7001-8202-020202020202",
+      "day_key": null,
+      "kind": "objective",
+      "parent_id": "019e20c7-6901-7001-8202-020202020202",
+      "purpose": "All scoped work is complete",
+      "record_id": "019e20c7-6904-7004-8505-050505050505",
+      "retraction_reason": null,
+      "status": "completed",
+      "tags": [
+        "rust",
+        "storage"
+      ],
+      "text": "Ship the storage refactor",
+      "updated_at": "2026-05-13T10:10:00.005+00:00"
+    },
+    {
+      "context": {
+        "cwd": "/home/fixture/scratch",
+        "git_branch": null,
+        "git_head": null,
+        "git_remote": null,
+        "git_root": null
+      },
+      "created_at": "2026-05-13T10:03:00+00:00",
+      "day_id": "019e20c7-6901-7001-8202-020202020202",
+      "day_key": null,
+      "kind": "task",
+      "parent_id": "019e20c7-6904-7004-8505-050505050505",
+      "purpose": "Keep replay cheap",
+      "record_id": "019e20c7-6905-7005-8606-060606060606",
+      "retraction_reason": null,
+      "status": "completed",
+      "tags": [
+        "rust"
+      ],
+      "text": "Split reducer from indexing",
+      "updated_at": "2026-05-13T10:03:00.005+00:00"
+    },
+    {
+      "context": {
+        "cwd": "/home/fixture/repo/src",
+        "git_branch": "main",
+        "git_head": "0123456789abcdef0123456789abcdef01234567",
+        "git_remote": "https://user:secret@example.com/fixture/repo.git",
+        "git_root": "/home/fixture/repo"
+      },
+      "created_at": "2026-05-13T10:04:00+00:00",
+      "day_id": "019e20c7-6902-7002-8303-030303030303",
+      "day_key": {
+        "date": "2026-05-13",
+        "timezone": "America/Denver"
+      },
+      "kind": "day",
+      "parent_id": null,
+      "purpose": null,
+      "record_id": "019e20c7-6902-7002-8303-030303030303",
+      "retraction_reason": null,
+      "status": "open",
+      "tags": [],
+      "text": "Day 2026-05-13",
+      "updated_at": "2026-05-13T10:04:00.005+00:00"
+    },
+    {
+      "context": {
+        "cwd": "/home/fixture/repo/src",
+        "git_branch": "main",
+        "git_head": "0123456789abcdef0123456789abcdef01234567",
+        "git_remote": "https://user:secret@example.com/fixture/repo.git",
+        "git_root": "/home/fixture/repo"
+      },
+      "created_at": "2026-05-13T10:05:00+00:00",
+      "day_id": "019e20c7-6902-7002-8303-030303030303",
+      "day_key": null,
+      "kind": "task",
+      "parent_id": "019e20c7-6904-7004-8505-050505050505",
+      "purpose": "Exercise amend",
+      "record_id": "019e20c7-6906-7006-8707-070707070707",
+      "retraction_reason": null,
+      "status": "active",
+      "tags": [
+        "docs",
+        "time"
+      ],
+      "text": "Backfilled with an explicit tz",
+      "updated_at": "2026-05-13T10:09:00.005+00:00"
+    },
+    {
+      "context": {
+        "cwd": "/home/fixture/scratch",
+        "git_branch": null,
+        "git_head": null,
+        "git_remote": null,
+        "git_root": null
+      },
+      "created_at": "2026-05-13T10:12:00+00:00",
+      "day_id": "019e20c7-6903-7003-8404-040404040404",
+      "day_key": null,
+      "kind": "task",
+      "parent_id": "019e20c7-6905-7005-8606-060606060606",
+      "purpose": null,
+      "record_id": "019e20c7-6907-7007-8808-080808080808",
+      "retraction_reason": null,
+      "status": "blocked",
+      "tags": [
+        "followup"
+      ],
+      "text": "Follow-up on the next day",
+      "updated_at": "2026-05-13T10:12:00.005+00:00"
+    },
+    {
+      "context": {
+        "cwd": "/home/fixture/repo/src",
+        "git_branch": "main",
+        "git_head": "0123456789abcdef0123456789abcdef01234567",
+        "git_remote": "https://user:secret@example.com/fixture/repo.git",
+        "git_root": "/home/fixture/repo"
+      },
+      "created_at": "2026-05-13T10:13:00+00:00",
+      "day_id": "019e20c7-6903-7003-8404-040404040404",
+      "day_key": null,
+      "kind": "task",
+      "parent_id": null,
+      "purpose": null,
+      "record_id": "019e20c7-6909-7009-8a0a-0a0a0a0a0a0a",
+      "retraction_reason": null,
+      "status": "open",
+      "tags": [],
+      "text": "Detached from its day",
+      "updated_at": "2026-05-13T10:14:00.005+00:00"
+    }
+  ]
+}

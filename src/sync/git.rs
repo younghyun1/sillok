@@ -1,227 +1,211 @@
-use std::fs::{self, OpenOptions};
-use std::io::Write;
-use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
+//! Temporary Git worktree for one sync attempt, driven through the `git` CLI.
+//!
+//! The user's own Git setup (SSH keys, credential helpers) handles auth.
+//! Every command runs non-interactively: an agent cannot answer a password
+//! prompt, so a prompt would hang the tool instead of failing.
 
-use crate::archive_codec::{decode_archive, encode_sync_archive};
-use crate::domain::archive::Archive;
-use crate::domain::id::ChronicleId;
+use std::path::{Path, PathBuf};
+use std::process::{Command, Output, Stdio};
+
+use crate::domain::id::ArchiveId;
 use crate::error::SillokError;
 use crate::sync::config::SyncConfig;
 
-pub const SYNC_COMMIT_MESSAGE: &str = "sync: update sillok archive";
-
-/// Result of committing and pushing an artifact.
-#[derive(Debug, Clone)]
-pub struct PushOutcome {
-    pub commit: Option<String>,
-    pub pushed: bool,
-}
-
-/// Git worktree used for one sync operation.
+/// A throwaway clone; deleted on drop.
 #[derive(Debug)]
-pub struct GitWorktree {
+pub struct Worktree {
     root: PathBuf,
     config: SyncConfig,
 }
 
-impl GitWorktree {
-    /// Creates a temporary worktree and checks out the configured branch if present.
-    pub fn prepare(config: SyncConfig) -> Result<Self, SillokError> {
-        config.validate()?;
-        let root = temp_worktree_path();
-        fs::create_dir_all(&root)?;
-        let worktree = Self { root, config };
-        worktree.git(["init"])?;
-        worktree.git(["remote", "add", "origin", &worktree.config.url])?;
-        if worktree.branch_exists()? {
-            worktree.git([
-                "fetch",
-                "--depth",
-                "1",
-                "origin",
-                &format!(
-                    "refs/heads/{}:refs/remotes/origin/{}",
-                    worktree.config.branch, worktree.config.branch
-                ),
-            ])?;
-            worktree.git([
-                "checkout",
-                "-B",
-                &worktree.config.branch,
-                &format!("refs/remotes/origin/{}", worktree.config.branch),
-            ])?;
-        } else {
-            worktree.git(["checkout", "-B", &worktree.config.branch])?;
+impl Worktree {
+    /// Creates the worktree and checks out the remote branch when it exists.
+    pub fn prepare(config: &SyncConfig) -> Result<Self, SillokError> {
+        let root = std::env::temp_dir().join(format!("sillok-sync-{}", ArchiveId::new_v7()));
+        if let Err(error) = std::fs::create_dir_all(&root) {
+            return Err(error.into());
         }
-        worktree.git(["config", "user.name", "sillok"])?;
-        worktree.git(["config", "user.email", "sillok@localhost"])?;
-        Ok(worktree)
-    }
-
-    /// Reads the configured archive artifact if it exists.
-    pub fn read_archive(&self) -> Result<Option<Archive>, SillokError> {
-        let path = self.artifact_path();
-        let bytes = match fs::read(&path) {
-            Ok(value) => value,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-            Err(error) => return Err(error.into()),
+        let tree = Self {
+            root,
+            config: config.clone(),
         };
-        Ok(Some(decode_archive(&bytes)?))
+        let branch = config.branch.as_str();
+        let remote_ref = format!("refs/remotes/origin/{branch}");
+        let steps: [&[&str]; 3] = [
+            &["init", "-q"],
+            &["remote", "add", "origin", config.url.as_str()],
+            &["config", "commit.gpgsign", "false"],
+        ];
+        for args in steps {
+            if let Err(error) = tree.git(args) {
+                return Err(error);
+            }
+        }
+        let heads = match tree.git(&["ls-remote", "--heads", "origin", branch]) {
+            Ok(value) => value,
+            Err(error) => return Err(error),
+        };
+        let checkout = if heads.trim().is_empty() {
+            tree.git(&["checkout", "-q", "-B", branch])
+        } else {
+            let refspec = format!("+refs/heads/{branch}:{remote_ref}");
+            match tree.git(&["fetch", "-q", "--depth", "1", "origin", refspec.as_str()]) {
+                Ok(_) => tree.git(&["checkout", "-q", "-B", branch, remote_ref.as_str()]),
+                Err(error) => Err(error),
+            }
+        };
+        match checkout {
+            Ok(_) => Ok(tree),
+            Err(error) => Err(error),
+        }
     }
 
-    /// Writes, commits, and pushes an archive artifact.
-    pub fn write_commit_push(&self, archive: &Archive) -> Result<PushOutcome, SillokError> {
-        let path = self.artifact_path();
-        match path.parent() {
-            Some(parent) => fs::create_dir_all(parent)?,
-            None => {
-                return Err(SillokError::new(
+    /// Worktree root.
+    pub fn root(&self) -> &Path {
+        &self.root
+    }
+
+    /// Directory holding the layout.
+    pub fn layout_dir(&self) -> PathBuf {
+        self.root.join(&self.config.dir)
+    }
+
+    /// Stages the layout (and a removed legacy file), commits, and pushes.
+    /// Returns the new commit, or `None` when nothing changed.
+    pub fn commit_and_push(&self, message: &str) -> Result<Option<String>, SillokError> {
+        let mut add = vec!["add", "-A", "--", self.config.dir.as_str()];
+        if let Some(legacy) = &self.config.legacy_path {
+            add.push(legacy.as_str());
+        }
+        if let Err(error) = self.git(&add) {
+            return Err(error);
+        }
+        let staged = match self.git(&["diff", "--cached", "--name-only"]) {
+            Ok(value) => value,
+            Err(error) => return Err(error),
+        };
+        if staged.trim().is_empty() {
+            return Ok(None);
+        }
+        let commit = [
+            "-c",
+            "user.name=sillok",
+            "-c",
+            "user.email=sillok@localhost",
+            "commit",
+            "-q",
+            "-m",
+            message,
+        ];
+        if let Err(error) = self.git(&commit) {
+            return Err(error);
+        }
+        let head = match self.git(&["rev-parse", "HEAD"]) {
+            Ok(value) => value.trim().to_string(),
+            Err(error) => return Err(error),
+        };
+        let target = format!("HEAD:refs/heads/{}", self.config.branch);
+        match run(&self.root, &["push", "-q", "origin", target.as_str()]) {
+            Ok(output) if output.status.success() => Ok(Some(head)),
+            Ok(output) => {
+                let message = failure(&output);
+                match is_rejection(&message) {
+                    true => Err(SillokError::PushRejected(message)),
+                    false => Err(SillokError::sync(
+                        "sync_git_error",
+                        format!("git push failed: {message}"),
+                    )),
+                }
+            }
+            Err(error) => Err(error),
+        }
+    }
+
+    fn git(&self, args: &[&str]) -> Result<String, SillokError> {
+        match run(&self.root, args) {
+            Ok(output) if output.status.success() => {
+                Ok(String::from_utf8_lossy(&output.stdout).to_string())
+            }
+            Ok(output) => {
+                let name = match args.first() {
+                    Some(value) => *value,
+                    None => "",
+                };
+                Err(SillokError::sync(
                     "sync_git_error",
-                    format!("artifact path `{}` has no parent", path.display()),
-                ));
+                    format!("git {name} failed: {}", failure(&output)),
+                ))
             }
+            Err(error) => Err(error),
         }
-        let encoded = encode_sync_archive(archive)?;
-        {
-            let mut file = OpenOptions::new()
-                .write(true)
-                .create(true)
-                .truncate(true)
-                .open(&path)?;
-            file.write_all(&encoded)?;
-            file.sync_all()?;
-        }
-        self.git(["add", "--", &self.config.path])?;
-        let status = self.git(["status", "--porcelain", "--", &self.config.path])?;
-        if status.stdout.trim().is_empty() {
-            return Ok(PushOutcome {
-                commit: self.current_head()?,
-                pushed: false,
-            });
-        }
-        self.git(["commit", "-m", SYNC_COMMIT_MESSAGE])?;
-        let head = self.current_head()?;
-        self.push_head()?;
-        Ok(PushOutcome {
-            commit: head,
-            pushed: true,
-        })
-    }
-
-    fn branch_exists(&self) -> Result<bool, SillokError> {
-        let output = run_git(
-            None,
-            [
-                "ls-remote",
-                "--heads",
-                &self.config.url,
-                &self.config.branch,
-            ],
-        )?;
-        Ok(!output.stdout.trim().is_empty())
-    }
-
-    fn artifact_path(&self) -> PathBuf {
-        self.root.join(&self.config.path)
-    }
-
-    fn current_head(&self) -> Result<Option<String>, SillokError> {
-        let output = raw_git(Some(&self.root), ["rev-parse", "HEAD"])?;
-        if output.status.success() {
-            let head = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            if head.is_empty() {
-                Ok(None)
-            } else {
-                Ok(Some(head))
-            }
-        } else {
-            Ok(None)
-        }
-    }
-
-    fn push_head(&self) -> Result<(), SillokError> {
-        let output = raw_git(
-            Some(&self.root),
-            [
-                "push",
-                "origin",
-                &format!("HEAD:refs/heads/{}", self.config.branch),
-            ],
-        )?;
-        if output.status.success() {
-            Ok(())
-        } else {
-            Err(SillokError::new(
-                "sync_push_rejected",
-                git_failure_message("git push", &output),
-            ))
-        }
-    }
-
-    fn git<I, S>(&self, args: I) -> Result<GitOutput, SillokError>
-    where
-        I: IntoIterator<Item = S>,
-        S: AsRef<std::ffi::OsStr>,
-    {
-        run_git(Some(&self.root), args)
     }
 }
 
-impl Drop for GitWorktree {
+impl Drop for Worktree {
     fn drop(&mut self) {
-        match fs::remove_dir_all(&self.root) {
-            Ok(()) | Err(_) => {}
+        if let Err(error) = std::fs::remove_dir_all(&self.root) {
+            tracing::warn!(path = %self.root.display(), error = %error, "Failed to remove sync worktree");
         }
     }
 }
 
-#[derive(Debug)]
-struct GitOutput {
-    stdout: String,
-}
-
-fn run_git<I, S>(cwd: Option<&Path>, args: I) -> Result<GitOutput, SillokError>
-where
-    I: IntoIterator<Item = S>,
-    S: AsRef<std::ffi::OsStr>,
-{
-    let output = raw_git(cwd, args)?;
-    if output.status.success() {
-        Ok(GitOutput {
-            stdout: String::from_utf8_lossy(&output.stdout).to_string(),
-        })
-    } else {
-        Err(SillokError::new(
-            "sync_git_error",
-            git_failure_message("git", &output),
-        ))
-    }
-}
-
-fn raw_git<I, S>(cwd: Option<&Path>, args: I) -> Result<Output, SillokError>
-where
-    I: IntoIterator<Item = S>,
-    S: AsRef<std::ffi::OsStr>,
-{
+fn run(dir: &Path, args: &[&str]) -> Result<Output, SillokError> {
     let mut command = Command::new("git");
-    if let Some(path) = cwd {
-        command.current_dir(path);
+    command
+        .args(args)
+        .current_dir(dir)
+        .stdin(Stdio::null())
+        .env("GIT_TERMINAL_PROMPT", "0");
+    // Keep the user's SSH command if they set one; otherwise forbid prompts.
+    if std::env::var_os("GIT_SSH_COMMAND").is_none() {
+        command.env("GIT_SSH_COMMAND", "ssh -o BatchMode=yes");
     }
-    for arg in args {
-        command.arg(arg);
+    match command.output() {
+        Ok(output) => Ok(output),
+        Err(error) => Err(SillokError::sync(
+            "sync_git_error",
+            format!("could not run git: {error}"),
+        )),
     }
-    command.output().map_err(|error| {
-        SillokError::new("sync_git_error", format!("failed to execute git: {error}"))
-    })
 }
 
-fn git_failure_message(command: &str, output: &Output) -> String {
+/// Whether a push failed only because the remote moved, which a fresh
+/// attempt can fix. Auth, hook, and network failures are not retryable.
+fn is_rejection(stderr: &str) -> bool {
+    [
+        "[rejected]",
+        "non-fast-forward",
+        "fetch first",
+        "stale info",
+    ]
+    .iter()
+    .any(|marker| stderr.contains(marker))
+}
+
+fn failure(output: &Output) -> String {
     let stderr = String::from_utf8_lossy(&output.stderr);
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    format!("{command} failed: stdout={stdout} stderr={stderr}")
+    stderr
+        .trim()
+        .lines()
+        .take(5)
+        .collect::<Vec<_>>()
+        .join(" | ")
 }
 
-fn temp_worktree_path() -> PathBuf {
-    std::env::temp_dir().join(format!("sillok-sync-{}", ChronicleId::new_v7()))
+#[cfg(test)]
+mod tests {
+    use super::is_rejection;
+
+    #[test]
+    fn only_moved_remotes_are_rejections() {
+        assert!(is_rejection(
+            " ! [rejected]        HEAD -> main (fetch first) | error: failed to push some refs"
+        ));
+        assert!(!is_rejection(
+            "remote: Permission to o/r.git denied to u. | fatal: unable to access"
+        ));
+        assert!(!is_rejection(
+            "remote: error: hook declined to update refs/heads/main"
+        ));
+    }
 }

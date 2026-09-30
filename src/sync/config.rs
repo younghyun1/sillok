@@ -1,162 +1,178 @@
-use std::fs::{self, File, OpenOptions};
-use std::io::Write;
+//! Per-store sync configuration in `<store>.sync.json`.
+
 use std::path::{Component, Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
-use crate::domain::id::ChronicleId;
 use crate::error::SillokError;
+use crate::storage::path::with_suffix;
 
-pub const SYNC_CONFIG_SCHEMA_VERSION: u32 = 1;
-pub const DEFAULT_SYNC_BRANCH: &str = "main";
-pub const DEFAULT_SYNC_PATH: &str = "sillok.slk.zst";
+/// Sidecar schema written by 1.x.
+pub const CONFIG_VERSION: u32 = 2;
+pub const DEFAULT_BRANCH: &str = "main";
+pub const DEFAULT_DIR: &str = "sillok";
 
-/// Per-store sync configuration stored beside the live database.
+/// Where the chronicle lives in the Git remote.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SyncConfig {
     pub schema_version: u32,
     pub url: String,
     pub branch: String,
-    pub path: String,
+    /// Directory holding `manifest.json` and `events/`.
+    pub dir: String,
+    /// 0.10 single-file artifact; imported and deleted on the next sync.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub legacy_path: Option<String>,
 }
 
 impl SyncConfig {
-    /// Builds and validates a sync configuration.
-    pub fn new(url: String, branch: String, path: String) -> Result<Self, SillokError> {
+    /// Builds and validates a configuration.
+    pub fn new(
+        url: String,
+        branch: Option<String>,
+        dir: Option<String>,
+        legacy_path: Option<String>,
+    ) -> Result<Self, SillokError> {
         let config = Self {
-            schema_version: SYNC_CONFIG_SCHEMA_VERSION,
-            url,
-            branch,
-            path,
+            schema_version: CONFIG_VERSION,
+            url: url.trim().to_string(),
+            branch: match branch {
+                Some(value) => value.trim().to_string(),
+                None => DEFAULT_BRANCH.to_string(),
+            },
+            dir: match dir {
+                Some(value) => value.trim().trim_matches('/').to_string(),
+                None => DEFAULT_DIR.to_string(),
+            },
+            legacy_path,
         };
-        config.validate()?;
-        Ok(config)
+        match config.validate() {
+            Ok(()) => Ok(config),
+            Err(error) => Err(error),
+        }
     }
 
-    /// Validates the config shape before any Git or filesystem access.
+    /// Rejects values Git could read as options and paths that leave the worktree.
     pub fn validate(&self) -> Result<(), SillokError> {
-        if self.schema_version != SYNC_CONFIG_SCHEMA_VERSION {
-            return Err(SillokError::new(
+        if self.url.is_empty() || self.url.starts_with('-') {
+            return Err(SillokError::sync(
                 "sync_config_error",
-                format!(
-                    "sync config schema {} is not supported",
-                    self.schema_version
-                ),
+                "remote URL is empty or starts with `-`",
             ));
         }
-        if self.url.trim().is_empty() {
-            return Err(SillokError::new("sync_config_error", "remote URL is empty"));
-        }
-        if self.branch.trim().is_empty() {
-            return Err(SillokError::new(
+        if self.branch.is_empty()
+            || self.branch.starts_with('-')
+            || self.branch.chars().any(|c| c.is_whitespace() || c == ':')
+        {
+            return Err(SillokError::sync(
                 "sync_config_error",
-                "remote branch is empty",
+                format!("invalid branch `{}`", self.branch),
             ));
         }
-        validate_artifact_path(&self.path)
+        if let Err(error) = relative_path(&self.dir) {
+            return Err(error);
+        }
+        match &self.legacy_path {
+            Some(path) => relative_path(path),
+            None => Ok(()),
+        }
     }
 }
 
-/// Returns the sidecar path for a store path.
-pub fn sidecar_path(store_path: &Path) -> PathBuf {
-    let mut sidecar = store_path.as_os_str().to_os_string();
-    sidecar.push(".sync.json");
-    PathBuf::from(sidecar)
+/// Sidecar path beside the store.
+pub fn sidecar(store: &Path) -> PathBuf {
+    with_suffix(store, ".sync.json")
 }
 
-/// Reads a sync config, returning `sync_remote_missing` when absent.
-pub fn read_required(store_path: &Path) -> Result<SyncConfig, SillokError> {
-    let path = sidecar_path(store_path);
-    let bytes = match fs::read(&path) {
+/// Reads the sidecar, upgrading a 0.10 (schema 1) file in place.
+pub fn read(store: &Path) -> Result<SyncConfig, SillokError> {
+    let path = sidecar(store);
+    let bytes = match std::fs::read(&path) {
         Ok(value) => value,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            return Err(SillokError::new(
+            return Err(SillokError::sync(
                 "sync_remote_missing",
-                format!(
-                    "sync remote is not configured for `{}`",
-                    store_path.display()
-                ),
+                "no sync remote; run `sillok sync remote set <url>`",
             ));
         }
         Err(error) => return Err(error.into()),
     };
-    let config = serde_json::from_slice::<SyncConfig>(&bytes)?;
-    config.validate()?;
-    Ok(config)
-}
-
-/// Persists a sync config beside the store using an atomic rename.
-pub fn write(store_path: &Path, config: &SyncConfig) -> Result<PathBuf, SillokError> {
-    config.validate()?;
-    let path = sidecar_path(store_path);
-    match path.parent() {
-        Some(parent) => fs::create_dir_all(parent)?,
-        None => {
-            return Err(SillokError::new(
-                "store_path_error",
-                format!("config path `{}` has no parent", path.display()),
-            ));
-        }
-    }
-    let mut temp_path = path.clone();
-    temp_path.set_extension(format!("{}.sync.tmp", ChronicleId::new_v7()));
-    let encoded = serde_json::to_vec_pretty(config)?;
-    {
-        let mut file = OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&temp_path)?;
-        file.write_all(&encoded)?;
-        file.sync_all()?;
-    }
-    fs::rename(&temp_path, &path)?;
-    sync_parent_dir(&path)?;
-    Ok(path)
-}
-
-fn validate_artifact_path(path: &str) -> Result<(), SillokError> {
-    let parsed = Path::new(path);
-    if path.trim().is_empty() || parsed.is_absolute() {
-        return Err(SillokError::new(
-            "sync_config_error",
-            "artifact path must be a non-empty relative path",
-        ));
-    }
-    for component in parsed.components() {
-        match component {
-            Component::Normal(_) => {}
-            Component::CurDir
-            | Component::ParentDir
-            | Component::RootDir
-            | Component::Prefix(_) => {
-                return Err(SillokError::new(
-                    "sync_config_error",
-                    format!("artifact path `{path}` must stay inside the Git worktree"),
-                ));
+    let value: Value = match serde_json::from_slice(&bytes) {
+        Ok(value) => value,
+        Err(error) => return Err(error.into()),
+    };
+    match value.get("schema_version").and_then(Value::as_u64) {
+        Some(1) => {
+            let field = |name: &str| value.get(name).and_then(Value::as_str).map(str::to_string);
+            let url = match field("url") {
+                Some(url) => url,
+                None => {
+                    return Err(SillokError::sync(
+                        "sync_config_error",
+                        "0.10 sidecar has no url",
+                    ));
+                }
+            };
+            let config = match SyncConfig::new(url, field("branch"), None, field("path")) {
+                Ok(value) => value,
+                Err(error) => return Err(error),
+            };
+            match write(store, &config) {
+                Ok(_) => Ok(config),
+                Err(error) => Err(error),
             }
         }
-    }
-    Ok(())
-}
-
-fn sync_parent_dir(path: &Path) -> Result<(), SillokError> {
-    #[cfg(unix)]
-    {
-        match path.parent() {
-            Some(parent) => {
-                let dir = File::open(parent)?;
-                dir.sync_all()?;
-                Ok(())
-            }
-            None => Err(SillokError::new(
-                "store_path_error",
-                format!("config path `{}` has no parent", path.display()),
+        _ => match serde_json::from_value::<SyncConfig>(value) {
+            Ok(config) if config.schema_version == CONFIG_VERSION => match config.validate() {
+                Ok(()) => Ok(config),
+                Err(error) => Err(error),
+            },
+            Ok(config) => Err(SillokError::sync(
+                "sync_config_error",
+                format!(
+                    "sync config schema {} needs a newer sillok",
+                    config.schema_version
+                ),
             )),
-        }
+            Err(error) => Err(error.into()),
+        },
     }
-    #[cfg(not(unix))]
-    {
-        let _ = path;
+}
+
+/// Writes the sidecar atomically.
+pub fn write(store: &Path, config: &SyncConfig) -> Result<PathBuf, SillokError> {
+    let path = sidecar(store);
+    let temp = with_suffix(&path, ".tmp");
+    let encoded = match serde_json::to_vec_pretty(config) {
+        Ok(value) => value,
+        Err(error) => return Err(error.into()),
+    };
+    if let Err(error) = crate::storage::path::ensure_parent(&path) {
+        return Err(error);
+    }
+    if let Err(error) = std::fs::write(&temp, encoded) {
+        return Err(error.into());
+    }
+    match std::fs::rename(&temp, &path) {
+        Ok(()) => Ok(path),
+        Err(error) => Err(error.into()),
+    }
+}
+
+fn relative_path(raw: &str) -> Result<(), SillokError> {
+    let path = Path::new(raw);
+    let valid = !raw.is_empty()
+        && !raw.starts_with('-')
+        && path
+            .components()
+            .all(|component| matches!(component, Component::Normal(_)));
+    if valid {
         Ok(())
+    } else {
+        Err(SillokError::sync(
+            "sync_config_error",
+            format!("path `{raw}` must be relative and stay inside the repository"),
+        ))
     }
 }
