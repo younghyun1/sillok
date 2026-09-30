@@ -1,66 +1,78 @@
-use std::fmt::{Display, Formatter};
-use std::str::FromStr;
+//! Millisecond UTC instants.
+//!
+//! Instants are stored as integer milliseconds and exchanged as RFC 3339 UTC
+//! strings with millisecond precision (`2026-09-30T01:40:35.773Z`), which keeps
+//! event JSON byte-stable and readable in Git diffs.
 
-use bitcode::{Decode, Encode};
-use chrono::{DateTime, Local, LocalResult, NaiveDate, NaiveDateTime, TimeZone, Utc};
-use chrono_tz::Tz;
+use std::fmt::{Display, Formatter};
+
+use chrono::{DateTime, SecondsFormat, Utc};
 use serde::de::Error as DeError;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::error::SillokError;
 
-/// Millisecond UTC timestamp. Milliseconds keep storage compact and sorting cheap.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Encode, Decode)]
+/// Millisecond-precision UTC instant.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Timestamp(i64);
 
 impl Timestamp {
-    /// Returns the current UTC timestamp.
+    /// Returns the current instant.
     pub fn now() -> Self {
         Self(Utc::now().timestamp_millis())
     }
 
-    /// Converts a chrono timestamp into the compact representation.
-    pub fn from_datetime(value: DateTime<Utc>) -> Self {
-        Self(value.timestamp_millis())
-    }
-
-    /// Builds a timestamp from raw milliseconds.
+    /// Wraps raw milliseconds since the Unix epoch.
     pub fn from_millis(value: i64) -> Self {
         Self(value)
     }
 
     /// Returns raw milliseconds since the Unix epoch.
-    pub fn as_millis(&self) -> i64 {
+    pub fn as_millis(self) -> i64 {
         self.0
     }
 
-    /// Converts into chrono UTC time.
-    pub fn to_utc(self) -> Result<DateTime<Utc>, SillokError> {
+    /// Converts a chrono instant, truncating to milliseconds.
+    pub fn from_datetime(value: DateTime<Utc>) -> Self {
+        Self(value.timestamp_millis())
+    }
+
+    /// Converts into a chrono instant.
+    pub fn to_datetime(self) -> Result<DateTime<Utc>, SillokError> {
         match DateTime::<Utc>::from_timestamp_millis(self.0) {
             Some(value) => Ok(value),
-            None => Err(SillokError::new(
+            None => Err(SillokError::invalid(
                 "invalid_timestamp",
-                format!("timestamp milliseconds out of range: {}", self.0),
+                format!("timestamp out of range: {} ms", self.0),
             )),
         }
     }
 
-    /// Formats the timestamp as RFC3339 for stable JSON output.
+    /// Parses an RFC 3339 instant with any offset.
+    pub fn parse_rfc3339(raw: &str) -> Result<Self, SillokError> {
+        match DateTime::parse_from_rfc3339(raw) {
+            Ok(value) => Ok(Self::from_datetime(value.with_timezone(&Utc))),
+            Err(error) => Err(SillokError::invalid(
+                "invalid_timestamp",
+                format!("invalid timestamp `{raw}`: {error}"),
+            )),
+        }
+    }
+
+    /// Formats as RFC 3339 UTC with milliseconds; out-of-range values fall
+    /// back to raw milliseconds so rendering never fails.
     pub fn to_rfc3339(self) -> String {
-        match self.to_utc() {
-            Ok(value) => value.to_rfc3339(),
+        match self.to_datetime() {
+            Ok(value) => value.to_rfc3339_opts(SecondsFormat::Millis, true),
             Err(_) => self.0.to_string(),
         }
     }
 
-    /// Formats the timestamp in the current device timezone for human output.
-    pub fn to_local_human(self) -> String {
-        match self.to_utc() {
-            Ok(value) => value
-                .with_timezone(&Local)
-                .format("%Y-%m-%d %I:%M %p")
-                .to_string(),
-            Err(_) => self.0.to_string(),
+    /// Returns the `YYYY-MM` UTC month used to bucket sync files.
+    pub fn utc_month(self) -> String {
+        match self.to_datetime() {
+            Ok(value) => value.format("%Y-%m").to_string(),
+            Err(_) => "invalid".to_string(),
         }
     }
 }
@@ -72,139 +84,53 @@ impl Display for Timestamp {
 }
 
 impl Serialize for Timestamp {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         serializer.serialize_str(&self.to_rfc3339())
     }
 }
 
 impl<'de> Deserialize<'de> for Timestamp {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let raw = String::deserialize(deserializer)?;
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let raw = match <std::borrow::Cow<'de, str>>::deserialize(deserializer) {
+            Ok(value) => value,
+            Err(error) => return Err(error),
+        };
         match DateTime::parse_from_rfc3339(&raw) {
             Ok(value) => Ok(Self::from_datetime(value.with_timezone(&Utc))),
-            Err(error) => Err(D::Error::custom(error.to_string())),
+            Err(error) => Err(D::Error::custom(error)),
         }
     }
 }
 
-/// Day key derived from an event timestamp and the selected timezone.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Decode, Encode)]
-pub struct DayKey {
-    pub date: String,
-    pub timezone: String,
-}
+#[cfg(test)]
+mod tests {
+    use super::Timestamp;
 
-/// Timezone selector used for day attribution and naive timestamp parsing.
-#[derive(Debug, Clone)]
-pub enum ZoneChoice {
-    Local,
-    Named(Tz),
-}
-
-impl ZoneChoice {
-    /// Parses an optional timezone name. Absence means system-local time.
-    pub fn parse(value: Option<&str>) -> Result<Self, SillokError> {
-        match value {
-            Some(raw) => match Tz::from_str(raw) {
-                Ok(tz) => Ok(Self::Named(tz)),
-                Err(error) => Err(SillokError::new(
-                    "invalid_timezone",
-                    format!("invalid timezone `{raw}`: {error}"),
-                )),
-            },
-            None => Ok(Self::Local),
-        }
+    #[test]
+    fn rfc3339_is_utc_with_millis() {
+        let ts = Timestamp::from_millis(1_790_732_435_773);
+        assert_eq!(ts.to_rfc3339(), "2026-09-30T01:40:35.773Z");
+        assert_eq!(ts.utc_month(), "2026-09");
     }
 
-    /// Returns a stable label for persisted day records.
-    pub fn label(&self) -> String {
-        match self {
-            Self::Local => "local".to_string(),
-            Self::Named(tz) => tz.to_string(),
-        }
+    #[test]
+    fn parse_accepts_offsets() {
+        let parsed = Timestamp::parse_rfc3339("2026-09-29T19:40:35.773-06:00");
+        assert!(matches!(parsed, Ok(ts) if ts.as_millis() == 1_790_732_435_773));
     }
 
-    /// Derives the local calendar day for a timestamp.
-    pub fn day_key(&self, timestamp: Timestamp) -> Result<DayKey, SillokError> {
-        let utc = timestamp.to_utc()?;
-        let date = match self {
-            Self::Local => utc.with_timezone(&Local).date_naive(),
-            Self::Named(tz) => utc.with_timezone(tz).date_naive(),
-        };
-        Ok(self.day_key_for_date(date))
-    }
-
-    /// Builds a day key for an explicit local date.
-    pub fn day_key_for_date(&self, date: NaiveDate) -> DayKey {
-        DayKey {
-            date: date.format("%Y-%m-%d").to_string(),
-            timezone: self.label(),
-        }
-    }
-
-    /// Parses a timestamp. RFC3339 inputs keep their offset; naive inputs use this zone.
-    pub fn parse_timestamp(&self, raw: &str) -> Result<Timestamp, SillokError> {
-        if let Ok(value) = DateTime::parse_from_rfc3339(raw) {
-            return Ok(Timestamp::from_datetime(value.with_timezone(&Utc)));
-        }
-
-        let naive = match NaiveDateTime::parse_from_str(raw, "%Y-%m-%dT%H:%M:%S") {
+    #[test]
+    fn serde_roundtrip() -> Result<(), serde_json::Error> {
+        let ts = Timestamp::from_millis(42);
+        let encoded = match serde_json::to_string(&ts) {
             Ok(value) => value,
-            Err(_) => match NaiveDateTime::parse_from_str(raw, "%Y-%m-%d %H:%M:%S") {
-                Ok(value) => value,
-                Err(error) => {
-                    return Err(SillokError::new(
-                        "invalid_timestamp",
-                        format!("invalid timestamp `{raw}`: {error}"),
-                    ));
-                }
-            },
+            Err(error) => return Err(error),
         };
-
-        match self {
-            Self::Local => match Local.from_local_datetime(&naive) {
-                LocalResult::Single(value) => {
-                    Ok(Timestamp::from_datetime(value.with_timezone(&Utc)))
-                }
-                LocalResult::Ambiguous(_, _) => Err(SillokError::new(
-                    "ambiguous_timestamp",
-                    format!("timestamp `{raw}` is ambiguous in {}", self.label()),
-                )),
-                LocalResult::None => Err(SillokError::new(
-                    "invalid_timestamp",
-                    format!("timestamp `{raw}` does not exist in {}", self.label()),
-                )),
-            },
-            Self::Named(tz) => match tz.from_local_datetime(&naive) {
-                LocalResult::Single(value) => {
-                    Ok(Timestamp::from_datetime(value.with_timezone(&Utc)))
-                }
-                LocalResult::Ambiguous(_, _) => Err(SillokError::new(
-                    "ambiguous_timestamp",
-                    format!("timestamp `{raw}` is ambiguous in {}", self.label()),
-                )),
-                LocalResult::None => Err(SillokError::new(
-                    "invalid_timestamp",
-                    format!("timestamp `{raw}` does not exist in {}", self.label()),
-                )),
-            },
-        }
-    }
-
-    /// Parses a YYYY-MM-DD date.
-    pub fn parse_date(&self, raw: &str) -> Result<DayKey, SillokError> {
-        match NaiveDate::parse_from_str(raw, "%Y-%m-%d") {
-            Ok(date) => Ok(self.day_key_for_date(date)),
-            Err(error) => Err(SillokError::new(
-                "invalid_date",
-                format!("invalid date `{raw}`: {error}"),
-            )),
-        }
+        let decoded: Timestamp = match serde_json::from_str(&encoded) {
+            Ok(value) => value,
+            Err(error) => return Err(error),
+        };
+        assert_eq!(decoded, ts);
+        Ok(())
     }
 }
