@@ -131,3 +131,6 @@ AGENTS.md
 *.sql
 !migrations/**/*.sql
 *.jsonl
+
+# Golden fixtures are committed test data, whatever their extension.
+!tests/fixtures/**

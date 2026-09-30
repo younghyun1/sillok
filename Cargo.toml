@@ -52,11 +52,18 @@ rusqlite = { version = "0.40.2", default-features = false, features = ["bundled"
 serde = { version = "1.0.229", default-features = false, features = ["std", "derive"] }
 serde_json = { version = "1.0.151", default-features = false, features = ["std", "preserve_order"] }
 thiserror = "2.0.21"
-tikv-jemallocator = { version = "0.7.0", features = ["background_threads", "unprefixed_malloc_on_supported_platforms"] }
 tracing = { version = "0.1.44", default-features = false, features = ["std", "release_max_level_info"] }
 tracing-subscriber = { version = "0.3.23", default-features = false, features = ["std", "fmt", "json", "env-filter", "smallvec"] }
 uuid = { version = "1.26.1", default-features = false, features = ["std", "v7", "v5"] }
 zstd = { version = "0.14.0", default-features = false }
+
+# jemalloc's background purge thread needs a pthread-based build; on macOS the
+# option only prints a warning to stderr on every run, so enable it on Linux only.
+[target.'cfg(target_os = "linux")'.dependencies]
+tikv-jemallocator = { version = "0.7.0", features = ["background_threads", "unprefixed_malloc_on_supported_platforms"] }
+
+[target.'cfg(not(target_os = "linux"))'.dependencies]
+tikv-jemallocator = { version = "0.7.0", features = ["unprefixed_malloc_on_supported_platforms"] }
 
 [dev-dependencies]
 arbitrary = { version = "1.4.2", features = ["derive"] }
