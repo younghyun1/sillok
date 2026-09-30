@@ -73,11 +73,22 @@ impl Worktree {
     /// Stages the layout (and a removed legacy file), commits, and pushes.
     /// Returns the new commit, or `None` when nothing changed.
     pub fn commit_and_push(&self, message: &str) -> Result<Option<String>, SillokError> {
-        let mut add = vec!["add", "-A", "--", self.config.dir.as_str()];
-        if let Some(legacy) = &self.config.legacy_path {
-            add.push(legacy.as_str());
+        if let Err(error) = self.git(&["add", "-A", "--", self.config.dir.as_str()]) {
+            return Err(error);
         }
-        if let Err(error) = self.git(&add) {
+        // The 0.10 artifact is usually gone already (an earlier sync removed
+        // it), and `git add` rejects a path that matches nothing; `rm
+        // --cached --ignore-unmatch` stages its deletion only when tracked.
+        if let Some(legacy) = &self.config.legacy_path
+            && let Err(error) = self.git(&[
+                "rm",
+                "-q",
+                "--cached",
+                "--ignore-unmatch",
+                "--",
+                legacy.as_str(),
+            ])
+        {
             return Err(error);
         }
         let staged = match self.git(&["diff", "--cached", "--name-only"]) {

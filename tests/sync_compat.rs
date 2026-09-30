@@ -84,6 +84,17 @@ fn legacy_remote_artifact_is_imported_and_replaced() -> TestResult {
         Err(error) => return Err(error),
     };
     assert_eq!(found["records"].as_array().map(Vec::len), Some(5));
+    // The config keeps legacy_path; a later sync with new events must still
+    // push even though the artifact no longer exists on the remote.
+    if let Err(error) = replica.ok(&["note", "after the legacy import"]) {
+        return Err(error);
+    }
+    let later = match replica.json(&["sync"]) {
+        Ok(value) => value,
+        Err(error) => return Err(error),
+    };
+    assert_eq!(later["pushed"], 1);
+    assert_eq!(later["legacy_imported"], 0);
     Ok(())
 }
 
