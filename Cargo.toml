@@ -13,8 +13,10 @@ categories = ["command-line-utilities", "development-tools"]
 include = [
     "Cargo.lock",
     "Cargo.toml",
+    "CHANGELOG.md",
     "README.md",
     "docs/**",
+    "examples/**",
     "src/**",
     "tests/**",
 ]
