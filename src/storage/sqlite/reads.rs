@@ -32,6 +32,8 @@ pub struct RecordFilter {
     pub text: Option<String>,
     /// Substring of the repository root, else working directory.
     pub context: Option<String>,
+    /// Exact repository root, else working directory, of the creating event.
+    pub context_key: Option<String>,
     /// Newest records kept; output is still oldest first.
     pub limit: usize,
 }
@@ -111,6 +113,14 @@ impl Store {
                 Box::new(context.clone()),
             );
         }
+        if let Some(key) = &filter.context_key {
+            bind(
+                &mut clauses,
+                &mut args,
+                "COALESCE(c.work_context_git_root, c.work_context_cwd) = #",
+                Box::new(key.clone()),
+            );
+        }
         let limit = match i64::try_from(filter.limit) {
             Ok(value) => value,
             Err(_) => i64::MAX,
@@ -129,6 +139,11 @@ impl Store {
             }
             Err(error) => Err(error),
         }
+    }
+
+    /// Records by id, in no particular order.
+    pub fn records(&self, ids: &[RecordId]) -> Result<Vec<Record>, SillokError> {
+        records::fetch_many(&self.conn, ids)
     }
 
     /// Visible children of the given parents.

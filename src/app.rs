@@ -42,13 +42,19 @@ pub fn run_from_env() -> i32 {
 /// with exit code 2 so agents can tell them from runtime failures.
 fn usage(error: clap::Error) -> i32 {
     match error.kind() {
-        ErrorKind::DisplayHelp
-        | ErrorKind::DisplayVersion
-        | ErrorKind::DisplayHelpOnMissingArgumentOrSubcommand => {
+        ErrorKind::DisplayHelp | ErrorKind::DisplayVersion => {
             match write_stdout(error.to_string().trim_end()) {
                 Ok(()) => 0,
                 Err(_) => 1,
             }
+        }
+        // `sillok objective` without a subcommand: help goes to stderr so a
+        // captured `$(...)` never mistakes it for output, and the exit is 2.
+        ErrorKind::DisplayHelpOnMissingArgumentOrSubcommand => {
+            eprintln!("{}", error.to_string().trim_end());
+            let failure = SillokError::Usage("missing subcommand or argument".to_string());
+            print_failure("usage", &failure, Mode::resolve(false, false));
+            failure.exit_code()
         }
         _ => {
             let message = error.to_string();

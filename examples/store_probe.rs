@@ -101,6 +101,7 @@ fn run() -> Result<(), SillokError> {
         Stamp {
             event_at: Timestamp::now(),
             recorded_at: Timestamp::now(),
+            backfilled: false,
             actor: "probe".into(),
             context: context.clone(),
         },

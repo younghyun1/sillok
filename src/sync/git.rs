@@ -107,7 +107,16 @@ impl Worktree {
         let target = format!("HEAD:refs/heads/{}", self.config.branch);
         match run(&self.root, &["push", "-q", "origin", target.as_str()]) {
             Ok(output) if output.status.success() => Ok(Some(head)),
-            Ok(output) => Err(SillokError::PushRejected(failure(&output))),
+            Ok(output) => {
+                let message = failure(&output);
+                match is_rejection(&message) {
+                    true => Err(SillokError::PushRejected(message)),
+                    false => Err(SillokError::sync(
+                        "sync_git_error",
+                        format!("git push failed: {message}"),
+                    )),
+                }
+            }
             Err(error) => Err(error),
         }
     }
@@ -160,6 +169,19 @@ fn run(dir: &Path, args: &[&str]) -> Result<Output, SillokError> {
     }
 }
 
+/// Whether a push failed only because the remote moved, which a fresh
+/// attempt can fix. Auth, hook, and network failures are not retryable.
+fn is_rejection(stderr: &str) -> bool {
+    [
+        "[rejected]",
+        "non-fast-forward",
+        "fetch first",
+        "stale info",
+    ]
+    .iter()
+    .any(|marker| stderr.contains(marker))
+}
+
 fn failure(output: &Output) -> String {
     let stderr = String::from_utf8_lossy(&output.stderr);
     stderr
@@ -168,4 +190,22 @@ fn failure(output: &Output) -> String {
         .take(5)
         .collect::<Vec<_>>()
         .join(" | ")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_rejection;
+
+    #[test]
+    fn only_moved_remotes_are_rejections() {
+        assert!(is_rejection(
+            " ! [rejected]        HEAD -> main (fetch first) | error: failed to push some refs"
+        ));
+        assert!(!is_rejection(
+            "remote: Permission to o/r.git denied to u. | fatal: unable to access"
+        ));
+        assert!(!is_rejection(
+            "remote: error: hook declined to update refs/heads/main"
+        ));
+    }
 }

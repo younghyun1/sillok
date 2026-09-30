@@ -190,3 +190,21 @@ fn import_is_idempotent_and_dry_run_writes_nothing() -> TestResult {
     assert_eq!(second["added"], 0);
     Ok(())
 }
+
+#[test]
+fn old_migrate_spelling_reads_the_legacy_file_beside_the_store() -> TestResult {
+    let sandbox = match Sandbox::new() {
+        Ok(value) => value,
+        Err(error) => return Err(error),
+    };
+    if let Err(error) = std::fs::copy(fixture("archive.slk.zst"), sandbox.path("sillok.slk.zst")) {
+        return Err(Box::new(error));
+    }
+    let report = match sandbox.json(&["migrate", "--yes"]) {
+        Ok(value) => value,
+        Err(error) => return Err(error),
+    };
+    assert_eq!(report["format"], "legacy_archive");
+    assert_eq!(report["added"], 11);
+    Ok(())
+}

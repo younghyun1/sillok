@@ -112,6 +112,7 @@ impl Ctx {
                 None => self.now,
             },
             recorded_at: self.now,
+            backfilled: self.at.is_some(),
             actor,
             context,
         }

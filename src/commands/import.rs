@@ -87,7 +87,10 @@ pub fn import(ctx: &mut Ctx, path: &Path, dry_run: bool) -> Result<Outcome, Sill
     .with_warnings(std::mem::take(&mut ctx.warnings)))
 }
 
-/// `--store <legacy> migrate [--target <db>] --yes` from 0.10.
+/// `[--store <legacy>] migrate [--target <db>] --yes` from 0.10.
+///
+/// As in 0.10, the source defaults to the v1 archive `sillok.slk.zst` beside
+/// the store, and the target to `sillok.db` beside the source.
 pub fn migrate(ctx: &mut Ctx, args: MigrateArgs) -> Result<Outcome, SillokError> {
     if !args.yes && !args.dry_run {
         return Err(SillokError::invalid(
@@ -95,7 +98,14 @@ pub fn migrate(ctx: &mut Ctx, args: MigrateArgs) -> Result<Outcome, SillokError>
             "migrate needs --yes or --dry-run",
         ));
     }
-    let source = ctx.store_path.clone();
+    let named_legacy = ctx
+        .store_path
+        .file_name()
+        .is_some_and(|name| name.to_string_lossy().ends_with(".slk.zst"));
+    let source = match named_legacy {
+        true => ctx.store_path.clone(),
+        false => ctx.store_path.with_file_name("sillok.slk.zst"),
+    };
     ctx.store_path = match args.target {
         Some(target) => target,
         None => match source.parent() {

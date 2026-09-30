@@ -6,6 +6,7 @@
 use crate::domain::event::envelope::EventBody;
 use crate::domain::event::kind::EventKind;
 use crate::domain::record::{Record, RecordKind, RecordStatus};
+use crate::domain::reducer::sanitize::sanitize;
 
 /// Reason attached when data creates or amends a record straight to `retracted`.
 const CREATED_RETRACTED: &str = "created as retracted";
@@ -58,7 +59,7 @@ pub fn create(event: &EventBody) -> Option<Record> {
         ),
         other => (other, None, None),
     };
-    Some(Record {
+    let mut record = Record {
         id: record_id,
         kind,
         parent: parent_id,
@@ -72,7 +73,9 @@ pub fn create(event: &EventBody) -> Option<Record> {
         created_at: event.event_at,
         updated_at: event.recorded_at,
         context: event.context.clone(),
-    })
+    };
+    sanitize(&mut record);
+    Some(record)
 }
 
 /// Applies an amend, retract, or restore. Returns false when the event had
@@ -129,6 +132,7 @@ pub fn apply(record: &mut Record, event: &EventBody) -> bool {
         _ => false,
     };
     if changed {
+        sanitize(record);
         touch(record, event);
     }
     changed

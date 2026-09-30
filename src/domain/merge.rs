@@ -23,27 +23,25 @@ pub struct MergePlan {
 }
 
 /// Plans merging `incoming` into a side that holds `local` (id to raw bytes).
+///
+/// Incoming copies of one id are reduced to their smallest bytes first, so
+/// the outcome does not depend on the order sources were read in.
 pub fn plan(local: &HashMap<EventId, &str>, incoming: Vec<Event>) -> MergePlan {
-    let mut plan = MergePlan::default();
-    let mut seen: HashMap<EventId, usize> = HashMap::new();
+    let mut best: HashMap<EventId, Event> = HashMap::with_capacity(incoming.len());
     for event in incoming {
+        match best.get(&event.id()) {
+            Some(existing) if existing.raw <= event.raw => {}
+            Some(_) | None => {
+                best.insert(event.id(), event);
+            }
+        }
+    }
+    let mut candidates: Vec<Event> = best.into_values().collect();
+    candidates.sort_by_key(|event| event.order_key());
+    let mut plan = MergePlan::default();
+    for event in candidates {
         match local.get(&event.id()) {
-            None => match seen.get(&event.id()) {
-                // Duplicate within the incoming set: keep the smaller bytes.
-                Some(index) => {
-                    let replace = match plan.additions.get(*index) {
-                        Some(existing) => event.raw < existing.raw,
-                        None => false,
-                    };
-                    if replace && let Some(slot) = plan.additions.get_mut(*index) {
-                        *slot = event;
-                    }
-                }
-                None => {
-                    seen.insert(event.id(), plan.additions.len());
-                    plan.additions.push(event);
-                }
-            },
+            None => plan.additions.push(event),
             Some(existing) if *existing == event.raw => {}
             Some(existing) => {
                 plan.conflicts.push(event.id());
@@ -54,11 +52,6 @@ pub fn plan(local: &HashMap<EventId, &str>, incoming: Vec<Event>) -> MergePlan {
         }
     }
     plan
-}
-
-/// The winning bytes for one id.
-pub fn winner<'a>(left: &'a str, right: &'a str) -> &'a str {
-    if right < left { right } else { left }
 }
 
 #[cfg(test)]
@@ -90,6 +83,21 @@ mod tests {
         assert_eq!(into_b.replacements.len(), 1);
         assert_eq!(into_a.conflicts.len(), 1);
         assert_eq!(into_b.conflicts.len(), 1);
+        Ok(())
+    }
+
+    #[test]
+    fn several_incoming_copies_reduce_to_the_smallest() -> Result<(), SillokError> {
+        let (a, b, c) = match (event("a"), event("b"), event("c")) {
+            (Ok(a), Ok(b), Ok(c)) => (a, b, c),
+            (Err(error), ..) | (_, Err(error), _) | (.., Err(error)) => return Err(error),
+        };
+        let local = HashMap::from([(c.id(), c.raw.as_str())]);
+        for order in [vec![a.clone(), b.clone()], vec![b.clone(), a.clone()]] {
+            let result = plan(&local, order);
+            assert_eq!(result.replacements.len(), 1);
+            assert_eq!(result.replacements[0].raw, a.raw);
+        }
         Ok(())
     }
 

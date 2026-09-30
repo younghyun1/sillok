@@ -154,3 +154,27 @@ fn unknown_events_are_counted_not_applied() -> Result<(), SillokError> {
     assert!(projection.records.is_empty());
     Ok(())
 }
+
+#[test]
+fn creation_cycles_detach_only_a_cycle_member() -> Result<(), SillokError> {
+    // Fixed ids make A the smallest, so a naive walk from A would detach it.
+    let fixed = |n: u8| {
+        let mut bytes = [0u8; 16];
+        bytes[15] = n;
+        RecordId::from_bytes(bytes)
+    };
+    let (a, b, c) = (fixed(1), fixed(2), fixed(3));
+    let events = match collect(vec![
+        task(1, a, Some(b)),
+        task(2, b, Some(c)),
+        task(3, c, Some(b)),
+    ]) {
+        Ok(value) => value,
+        Err(error) => return Err(error),
+    };
+    let projection = replay(events.iter());
+    assert!(matches!(projection.records.get(&a), Some(r) if r.parent == Some(b)));
+    assert!(matches!(projection.records.get(&b), Some(r) if r.parent.is_none()));
+    assert!(matches!(projection.records.get(&c), Some(r) if r.parent == Some(b)));
+    Ok(())
+}

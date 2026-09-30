@@ -23,8 +23,34 @@ const MAX_DEPTH: usize = 10_000;
 pub struct Stamp {
     pub event_at: Timestamp,
     pub recorded_at: Timestamp,
+    /// Whether `event_at` came from `--at`; otherwise it follows `recorded_at`.
+    pub backfilled: bool,
     pub actor: String,
     pub context: WorkContext,
+}
+
+/// Now, or the earliest instant after `floor`, whichever is later; never
+/// earlier than the caller's own stamp.
+pub fn next_recorded_at(stamped: Timestamp, floor: Option<Timestamp>) -> Timestamp {
+    let now = Timestamp::now().max(stamped);
+    match floor {
+        Some(value) if value >= now => Timestamp::from_millis(value.as_millis() + 1),
+        Some(_) | None => now,
+    }
+}
+
+fn updated_at(conn: &Connection, id: RecordId) -> Result<Option<Timestamp>, SillokError> {
+    match conn
+        .query_row(
+            "SELECT record_updated_at_ms FROM record WHERE record_id = ?1",
+            [id.as_bytes().to_vec()],
+            |row| row.get::<_, i64>(0),
+        )
+        .optional()
+    {
+        Ok(value) => Ok(value.map(Timestamp::from_millis)),
+        Err(error) => Err(error.into()),
+    }
 }
 
 impl Store {
@@ -37,13 +63,27 @@ impl Store {
             Ok(value) => value,
             Err(error) => return Err(error.into()),
         };
-        let event = match Event::create(
-            stamp.event_at,
-            stamp.recorded_at,
-            stamp.actor,
-            stamp.context,
-            kind,
-        ) {
+        // Replay orders writes by recorded_at, so it is taken only once this
+        // process holds the write lock and is kept above the target record's
+        // updated_at. Otherwise a writer that waited on the lock, or a synced
+        // event from a machine whose clock runs ahead, would make the live
+        // projection disagree with a replay of the same events.
+        let floor = match kind.created_kind() {
+            Some(_) => None,
+            None => match kind.record_id() {
+                Some(id) => match updated_at(&tx, id) {
+                    Ok(value) => value,
+                    Err(error) => return Err(error),
+                },
+                None => None,
+            },
+        };
+        let recorded_at = next_recorded_at(stamp.recorded_at, floor);
+        let event_at = match stamp.backfilled {
+            true => stamp.event_at,
+            false => recorded_at,
+        };
+        let event = match Event::create(event_at, recorded_at, stamp.actor, stamp.context, kind) {
             Ok(value) => value,
             Err(error) => return Err(error),
         };
@@ -202,4 +242,21 @@ fn is_self_or_descendant(
         };
     }
     Ok(true)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::next_recorded_at;
+    use crate::domain::time::Timestamp;
+
+    #[test]
+    fn recorded_at_stays_above_the_record() {
+        let past = Timestamp::from_millis(1_000);
+        let future = Timestamp::from_millis(Timestamp::now().as_millis() + 60_000);
+        assert!(next_recorded_at(past, None) >= Timestamp::now().max(past));
+        assert_eq!(
+            next_recorded_at(past, Some(future)).as_millis(),
+            future.as_millis() + 1
+        );
+    }
 }

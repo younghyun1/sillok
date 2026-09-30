@@ -72,17 +72,26 @@ pub fn insert(conn: &Connection, event: &Event) -> Result<bool, SillokError> {
     }
 }
 
-/// Replaces the stored bytes of an event (sync conflict convergence).
+/// Replaces the stored bytes of an event (sync conflict convergence). Every
+/// column derived from the JSON is rewritten so indexes match the new bytes.
 pub fn replace(conn: &Connection, event: &Event) -> Result<(), SillokError> {
+    let context = match context_id(conn, &event.body.context) {
+        Ok(value) => value,
+        Err(error) => return Err(error),
+    };
+    let record = event.body.kind.record_id().map(|id| id.as_bytes().to_vec());
     match conn.execute(
-        "UPDATE event SET event_json = ?2, event_kind = ?3, event_occurred_at_ms = ?4,
-            event_recorded_at_ms = ?5 WHERE event_id = ?1",
+        "UPDATE event SET event_json = ?2, event_kind = ?3, event_record_id = ?4,
+            event_occurred_at_ms = ?5, event_recorded_at_ms = ?6, event_work_context_id = ?7
+         WHERE event_id = ?1",
         params![
             event.id().as_bytes().to_vec(),
             event.raw,
             event.body.kind.label(),
+            record,
             event.body.event_at.as_millis(),
             event.body.recorded_at.as_millis(),
+            context,
         ],
     ) {
         Ok(_) => Ok(()),

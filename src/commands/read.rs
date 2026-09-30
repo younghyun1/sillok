@@ -178,6 +178,7 @@ pub fn query(ctx: &mut Ctx, args: QueryArgs) -> Result<Outcome, SillokError> {
         open_only: args.open,
         text: args.text,
         context: args.context,
+        context_key: None,
         limit: args.limit,
     };
     list(ctx, "query", "Query", &filter)
@@ -214,27 +215,34 @@ pub fn status(ctx: &mut Ctx, args: StatusArgs) -> Result<Outcome, SillokError> {
         Ok(value) => value,
         Err(error) => return Err(error),
     };
-    let objectives = match store.query(&RecordFilter {
+    // Objectives created in this repository, filtered in SQL before the
+    // limit, plus open objectives that parent recent work done here.
+    let mut objectives = match store.query(&RecordFilter {
         kind: Some(RecordKind::Objective),
         open_only: true,
+        context_key: key.clone(),
         limit: 50,
         ..RecordFilter::default()
     }) {
         Ok(value) => value,
         Err(error) => return Err(error),
     };
-    // Scope objectives to this repository: created here, or an ancestor of recent work here.
-    let recent_parents: Vec<RecordId> = recent.iter().filter_map(|record| record.parent).collect();
-    let objectives: Vec<Record> = match &key {
-        Some(context) => objectives
-            .into_iter()
-            .filter(|objective| {
-                objective.context.key() == Some(context.as_str())
-                    || recent_parents.contains(&objective.id)
-            })
-            .collect(),
-        None => objectives,
-    };
+    let mut parent_ids: Vec<RecordId> = recent
+        .iter()
+        .filter_map(|record| record.parent)
+        .filter(|parent| !objectives.iter().any(|objective| objective.id == *parent))
+        .collect();
+    parent_ids.sort();
+    parent_ids.dedup();
+    match store.records(&parent_ids) {
+        Ok(parents) => objectives.extend(
+            parents
+                .into_iter()
+                .filter(|record| record.kind == RecordKind::Objective && record.status.is_open()),
+        ),
+        Err(error) => return Err(error),
+    }
+    objectives.sort_by_key(|record| (record.created_at, record.id));
     let human_text = format!(
         "{}\n\n{}",
         human::list("Open objectives", &objectives, &ctx.zone),

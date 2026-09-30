@@ -94,6 +94,16 @@ pub fn attempt(
             dirty.insert(recorded.utc_month());
         }
     }
+    // A remote line that lost a conflict (or duplicates an id) may sit in a
+    // different month than the winner; rewrite that month too so it drops out.
+    for line in &remote.lines {
+        match merged.get(&line.event_id) {
+            Some((_, raw)) if *raw == line.raw.as_str() => {}
+            Some(_) | None => {
+                dirty.insert(line.recorded_at.utc_month());
+            }
+        }
+    }
     let identity = match choose_identity(store, remote.manifest.as_ref()) {
         Ok(value) => value,
         Err(error) => return Err(error),
@@ -205,12 +215,18 @@ fn write_layout(
             .filter(|(_, (recorded, _))| dirty.contains(&recorded.utc_month()))
             .map(|(id, (recorded, raw))| (*recorded, *id, *raw)),
     );
-    for (month, lines) in months {
-        if let Err(error) = std::fs::write(
-            events_dir.join(format!("{month}.jsonl")),
-            layout::render_month(lines),
-        ) {
-            return Err(error.into());
+    for month in dirty {
+        let path = events_dir.join(format!("{month}.jsonl"));
+        // A dirty month with no events held only lines that lost a conflict.
+        let written = match months.get(month) {
+            Some(lines) => match std::fs::write(&path, layout::render_month(lines.clone())) {
+                Ok(()) => Ok(()),
+                Err(error) => Err(error.into()),
+            },
+            None => crate::storage::path::remove_if_exists(&path),
+        };
+        if let Err(error) = written {
+            return Err(error);
         }
     }
     let encoded = match serde_json::to_string_pretty(manifest) {

@@ -7,8 +7,8 @@
 //! 3. mutations apply in `(recorded_at, event_id)` order, last writer wins;
 //!    a move that would create a cycle or points at a missing record is skipped.
 
+use std::collections::HashMap;
 use std::collections::hash_map::Entry;
-use std::collections::{HashMap, HashSet};
 
 use crate::domain::event::envelope::Event;
 use crate::domain::event::kind::EventKind;
@@ -157,22 +157,40 @@ fn repair_creation_parents(projection: &mut Projection) {
         }
     }
     for id in &ids {
-        let mut seen = HashSet::new();
-        let mut current = Some(*id);
-        while let Some(step) = current {
-            if !seen.insert(step) {
-                projection.warnings.push(format!(
-                    "record `{id}` is in a parent cycle; shown top-level"
-                ));
-                if let Some(record) = projection.records.get_mut(id) {
-                    record.parent = None;
+        // A walk may reach a cycle it is not part of; only the cycle's own
+        // members are candidates, and the smallest id is detached so every
+        // replica breaks it at the same place.
+        loop {
+            let mut path: Vec<RecordId> = Vec::new();
+            let mut position: HashMap<RecordId, usize> = HashMap::new();
+            let mut current = Some(*id);
+            let mut cycle_start = None;
+            while let Some(step) = current {
+                if let Some(index) = position.get(&step) {
+                    cycle_start = Some(*index);
+                    break;
                 }
-                break;
+                position.insert(step, path.len());
+                path.push(step);
+                current = match projection.records.get(&step) {
+                    Some(record) => record.parent,
+                    None => None,
+                };
             }
-            current = match projection.records.get(&step) {
-                Some(record) => record.parent,
-                None => None,
+            let members = match cycle_start {
+                Some(index) => &path[index..],
+                None => break,
             };
+            let breaker = match members.iter().min() {
+                Some(value) => *value,
+                None => break,
+            };
+            projection.warnings.push(format!(
+                "record `{breaker}` closed a parent cycle; shown top-level"
+            ));
+            if let Some(record) = projection.records.get_mut(&breaker) {
+                record.parent = None;
+            }
         }
     }
 }
