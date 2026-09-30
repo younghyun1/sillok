@@ -105,6 +105,11 @@ pub fn migrate_v2(path: &Path) -> Result<Option<MigrationReport>, SillokError> {
         events = conversion.events.len(),
         "Migrated 0.10 store"
     );
+    // Waiters holding the old inode re-check the version after locking, so
+    // unlinking before release cannot cause a second migration.
+    if let Err(error) = remove_if_exists(lock.path()) {
+        tracing::warn!(path = %lock.path().display(), error = %error, "Failed to remove migration lock");
+    }
     drop(lock);
     Ok(Some(MigrationReport {
         legacy_events: archive.events.len(),
