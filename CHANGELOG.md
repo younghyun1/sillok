@@ -5,7 +5,6 @@
 ### Fixed
 
 - Windows builds use the system allocator instead of compiling jemalloc, whose MSVC build requires Unix tools and is untested by the Rust wrapper. Linux and macOS keep jemalloc.
-- CI checks Windows on nightly and the minimum supported Rust version.
 - The legacy sync test serializes Windows paths as valid JSON.
 
 ### Dependencies
