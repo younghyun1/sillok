@@ -1,6 +1,6 @@
 [package]
 name = "sillok"
-version = "1.0.1"
+version = "1.0.2"
 edition = "2024"
 rust-version = "1.97.1"
 description = "A structured chronicle of agent work: objectives, tasks, and derived days, safe for many concurrent agents."
@@ -52,23 +52,22 @@ iana-time-zone = "0.1.65"
 nutype = { version = "0.8.0", default-features = false, features = ["std"] }
 rusqlite = { version = "0.40.2", default-features = false, features = ["bundled", "cache"] }
 serde = { version = "1.0.229", default-features = false, features = ["std", "derive"] }
-serde_json = { version = "1.0.151", default-features = false, features = ["std", "preserve_order"] }
+serde_json = { version = "1.0.154", default-features = false, features = ["std", "preserve_order"] }
 thiserror = "2.0.21"
 tracing = { version = "0.1.44", default-features = false, features = ["std", "release_max_level_info"] }
 tracing-subscriber = { version = "0.3.23", default-features = false, features = ["std", "fmt", "json", "env-filter", "smallvec"] }
-uuid = { version = "1.26.1", default-features = false, features = ["std", "v7", "v5"] }
-zstd = { version = "0.14.0", default-features = false }
+uuid = { version = "1.28.0", default-features = false, features = ["std", "v7", "v5"] }
+zstd = { version = "0.14.3", default-features = false }
 
-# jemalloc's background purge thread needs a pthread-based build; on macOS the
-# option only prints a warning to stderr on every run, so enable it on Linux only.
+# Use the system allocator on Windows; jemalloc's Rust wrapper does not test MSVC.
+# Background purging only works on Linux and warns on every invocation on macOS.
 [target.'cfg(target_os = "linux")'.dependencies]
 tikv-jemallocator = { version = "0.7.0", features = ["background_threads", "unprefixed_malloc_on_supported_platforms"] }
 
-[target.'cfg(not(target_os = "linux"))'.dependencies]
+[target.'cfg(target_os = "macos")'.dependencies]
 tikv-jemallocator = { version = "0.7.0", features = ["unprefixed_malloc_on_supported_platforms"] }
 
 [dev-dependencies]
-arbitrary = { version = "1.4.2", features = ["derive"] }
 assert_cmd = "2.2.2"
-derive_fuzztest = { version = "0.1.4", default-features = false, features = ["proptest"] }
+proptest = { version = "1.12.0", default-features = false, features = ["std"] }
 tempfile = "3.27.0"

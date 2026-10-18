@@ -1,8 +1,8 @@
 //! `sillok` binary.
 
-// jemalloc per the house stack. Its background purge thread starts lazily
-// and the process usually exits within milliseconds, so the cost is
-// negligible, and C code (bundled SQLite) allocates through it too.
+// Keep jemalloc on its supported desktop targets. Windows uses the system
+// allocator so installation does not require jemalloc's Unix build tools.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 #[global_allocator]
 static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 

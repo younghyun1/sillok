@@ -50,10 +50,13 @@ fn legacy_remote_artifact_is_imported_and_replaced() -> TestResult {
         Err(error) => return Err(error),
     };
     // A 0.10 sidecar, as an upgraded machine would have it.
-    let sidecar = format!(
-        "{{\"schema_version\":1,\"url\":\"{remote}\",\"branch\":\"main\",\"path\":\"sillok.slk.zst\"}}"
-    );
-    if let Err(error) = std::fs::write(replica.path("sillok.db.sync.json"), sidecar) {
+    let sidecar = serde_json::json!({
+        "schema_version": 1,
+        "url": remote,
+        "branch": "main",
+        "path": "sillok.slk.zst",
+    });
+    if let Err(error) = std::fs::write(replica.path("sillok.db.sync.json"), sidecar.to_string()) {
         return Err(Box::new(error));
     }
     let report = match replica.json(&["sync"]) {

@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 
-use arbitrary::Arbitrary;
+use proptest::prelude::*;
 use sillok::domain::event::context::WorkContext;
 use sillok::domain::event::envelope::{Event, EventBody};
 use sillok::domain::event::kind::EventKind;
@@ -13,13 +13,26 @@ use sillok::domain::reducer::replay::replay;
 use sillok::domain::time::Timestamp;
 
 /// One generated operation; indexes pick earlier records modulo their count.
-#[derive(Debug, Clone, Arbitrary)]
+#[derive(Debug, Clone)]
 enum Op {
     Create { parent: Option<u8>, objective: bool },
     Amend { target: u8, status: u8 },
     Move { target: u8, parent: Option<u8> },
     Retract { target: u8 },
     Restore { target: u8 },
+}
+
+/// Generate each operation directly so shrinking preserves valid operation shapes.
+fn operation() -> impl Strategy<Value = Op> {
+    prop_oneof![
+        (proptest::option::of(any::<u8>()), any::<bool>())
+            .prop_map(|(parent, objective)| Op::Create { parent, objective }),
+        (any::<u8>(), any::<u8>()).prop_map(|(target, status)| Op::Amend { target, status }),
+        (any::<u8>(), proptest::option::of(any::<u8>()))
+            .prop_map(|(target, parent)| Op::Move { target, parent }),
+        any::<u8>().prop_map(|target| Op::Retract { target }),
+        any::<u8>().prop_map(|target| Op::Restore { target }),
+    ]
 }
 
 fn id(index: usize) -> RecordId {
@@ -123,9 +136,8 @@ fn build(ops: &[Op]) -> Vec<Event> {
     events
 }
 
-#[derive_fuzztest::proptest]
-fn replay_ignores_arrival_order(ops: Vec<Op>, rotate: u8) {
-    let events = build(&ops);
+fn check_replay_order(ops: &[Op], rotate: u8) {
+    let events = build(ops);
     let forward = replay(events.iter());
     let mut shuffled = events.clone();
     shuffled.reverse();
@@ -137,9 +149,8 @@ fn replay_ignores_arrival_order(ops: Vec<Op>, rotate: u8) {
     assert_eq!(forward.records, reordered.records);
 }
 
-#[derive_fuzztest::proptest]
-fn merge_of_any_split_restores_the_whole(ops: Vec<Op>, split: u8) {
-    let events = build(&ops);
+fn check_merge_split(ops: &[Op], split: u8) {
+    let events = build(ops);
     let cut = match events.len() {
         0 => 0,
         len => usize::from(split) % (len + 1),
@@ -158,4 +169,22 @@ fn merge_of_any_split_restores_the_whole(ops: Vec<Op>, split: u8) {
     assert_eq!(into_left.additions.len() + left.len(), events.len());
     assert_eq!(into_right.additions.len() + right.len(), events.len());
     assert!(into_left.conflicts.is_empty() && into_right.conflicts.is_empty());
+}
+
+proptest! {
+    #[test]
+    fn replay_ignores_arrival_order(
+        ops in proptest::collection::vec(operation(), 0..128),
+        rotate in any::<u8>(),
+    ) {
+        check_replay_order(&ops, rotate);
+    }
+
+    #[test]
+    fn merge_of_any_split_restores_the_whole(
+        ops in proptest::collection::vec(operation(), 0..128),
+        split in any::<u8>(),
+    ) {
+        check_merge_split(&ops, split);
+    }
 }

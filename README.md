@@ -11,6 +11,8 @@ sillok guide        # the agent workflow in one page
 
 The binary is built for the host CPU (`.cargo/config.toml`). The first command after upgrading from 0.9 or 0.10 migrates the existing store in place; see [Upgrading from 0.x](#upgrading-from-0x).
 
+Linux and macOS use jemalloc; Windows uses Rust's system allocator. Windows builds need the Visual Studio C++ build tools and Windows SDK for bundled SQLite and zstd, but do not need a Unix shell or jemalloc build tools.
+
 ## For agents
 
 Add this to a repository's `AGENTS.md` or `CLAUDE.md`:

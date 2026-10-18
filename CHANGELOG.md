@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.0.2
+
+### Fixed
+
+- Windows builds use the system allocator instead of compiling jemalloc, whose MSVC build requires Unix tools and is untested by the Rust wrapper. Linux and macOS keep jemalloc.
+- CI checks Windows on nightly and the minimum supported Rust version.
+- The legacy sync test serializes Windows paths as valid JSON.
+
+### Dependencies
+
+- Upgraded dependencies with `cargo upgrade --incompatible` and refreshed transitive dependencies, including serde_json, uuid, zstd, and build dependencies.
+- Replaced the property-test adapter with native Proptest generators because the adapter does not compile with current Proptest. Replay-order and merge-split checks keep their coverage and gain structured input shrinking.
+
 ## 1.0.1
 
 ### Fixed
