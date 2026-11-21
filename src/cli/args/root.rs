@@ -2,23 +2,28 @@
 
 use std::path::PathBuf;
 
+use clap::builder::{OsStringValueParser, TypedValueParser};
 use clap::{Parser, Subcommand};
 
 use crate::cli::args::admin::{DoctorArgs, ImportArgs, MigrateArgs, ResetArgs, SyncArgs};
 use crate::cli::args::read::{DayArgs, ExportArgs, QueryArgs, StatusArgs, TreeArgs};
 use crate::cli::args::record::{AmendArgs, IdArgs, MoveArgs, NoteArgs, ObjectiveArgs, RetractArgs};
+use crate::cli::args::skill::SkillArgs;
 
 const AFTER_HELP: &str =
     "Writes print the affected id; reads print compact JSON; errors are JSON on stderr.
-Run `sillok guide` for the agent workflow. Environment: SILLOK_STORE, SILLOK_TZ,
-SILLOK_ACTOR, SILLOK_SESSION, SILLOK_OUTPUT (compact|json|human), SILLOK_LOG.";
+Run `sillok guide` for the agent workflow and `sillok skill install` to install it as
+an agent skill. Environment: SILLOK_STORE, SILLOK_TZ, SILLOK_ACTOR, SILLOK_SESSION,
+SILLOK_OUTPUT (compact|json|human), SILLOK_SKILL_AUTOUPDATE (0 disables), SILLOK_LOG.";
 
 /// Structured chronicle of agent work: objectives, tasks, and what happened each day.
 #[derive(Debug, Parser)]
 #[command(name = "sillok", version, about, after_help = AFTER_HELP)]
 pub struct Cli {
     /// Store path. Defaults to SILLOK_STORE, then the XDG data directory.
-    #[arg(long, global = true, env = "SILLOK_STORE")]
+    // The stock `PathBuf` parser rejects an empty value, which would turn an
+    // exported-but-empty SILLOK_STORE into a usage error; empty means unset.
+    #[arg(long, global = true, env = "SILLOK_STORE", value_parser = OsStringValueParser::new().map(PathBuf::from))]
     pub store: Option<PathBuf>,
 
     /// Print the full JSON envelope.
@@ -85,6 +90,8 @@ pub enum Command {
     Reset(ResetArgs),
     /// Print the agent usage guide.
     Guide,
+    /// Install, inspect, or print the agent skill built into this binary.
+    Skill(SkillArgs),
     /// 0.10 spelling of `import`; kept so old instructions keep working.
     #[command(hide = true)]
     Migrate(MigrateArgs),
@@ -112,6 +119,7 @@ impl Command {
             Self::Sync(_) => "sync",
             Self::Reset(_) => "reset",
             Self::Guide => "guide",
+            Self::Skill(_) => "skill",
             Self::Migrate(_) => "migrate",
         }
     }

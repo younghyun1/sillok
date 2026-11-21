@@ -14,6 +14,21 @@ use crate::error::SillokError;
 /// Value of `store_meta.store_version` for this layout.
 pub const STORE_VERSION: &str = "3";
 
+/// Revision of the additive parts of the layout (`store_meta.schema_rev`).
+/// Raise it when `ADDITIONS` grows; older binaries ignore both the key and
+/// the objects it covers, so a revision never needs a store migration.
+pub const SCHEMA_REV: u32 = 1;
+
+/// Indexes added after store version 3 first shipped. Idempotent, and also
+/// part of `SCHEMA`, so new stores start with them.
+///
+/// Revision 1: `status` matches a repository by its remote URL, which lives
+/// only in the context JSON.
+pub const ADDITIONS: &str = "
+CREATE INDEX IF NOT EXISTS work_context_git_remote_idx
+    ON work_context (json_extract(work_context_json, '$.git_remote'));
+";
+
 const SCHEMA: &str = "
 CREATE TABLE IF NOT EXISTS store_meta (
     store_meta_key TEXT NOT NULL CONSTRAINT store_meta_pk PRIMARY KEY,
@@ -92,7 +107,15 @@ CREATE INDEX IF NOT EXISTS record_tag_text_idx ON record_tag (record_tag_text, r
 
 /// Creates every table and index; idempotent.
 pub fn create(conn: &Connection) -> Result<(), SillokError> {
-    match conn.execute_batch(SCHEMA) {
+    if let Err(error) = conn.execute_batch(SCHEMA) {
+        return Err(error.into());
+    }
+    add(conn)
+}
+
+/// Applies `ADDITIONS` to a store created by an earlier 1.x release.
+pub fn add(conn: &Connection) -> Result<(), SillokError> {
+    match conn.execute_batch(ADDITIONS) {
         Ok(()) => Ok(()),
         Err(error) => Err(error.into()),
     }

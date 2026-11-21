@@ -1,16 +1,15 @@
-//! Read commands: show, day, tree, query, objective list, status.
+//! Read commands: show, day, tree, query, objective list.
 
 use std::collections::HashMap;
 
 use serde_json::{Value, json};
 
-use crate::cli::args::read::{DayArgs, QueryArgs, StatusArgs, TreeArgs};
+use crate::cli::args::read::{DayArgs, QueryArgs, TreeArgs};
 use crate::cli::args::record::ObjectiveListArgs;
 use crate::cli::human::records as human;
 use crate::cli::output::outcome::Outcome;
 use crate::cli::output::views;
 use crate::commands::ctx::Ctx;
-use crate::context::capture;
 use crate::domain::id::RecordId;
 use crate::domain::record::{Record, RecordKind};
 use crate::domain::text;
@@ -178,7 +177,7 @@ pub fn query(ctx: &mut Ctx, args: QueryArgs) -> Result<Outcome, SillokError> {
         open_only: args.open,
         text: args.text,
         context: args.context,
-        context_key: None,
+        scope: None,
         limit: args.limit,
     };
     list(ctx, "query", "Query", &filter)
@@ -193,71 +192,6 @@ pub fn objective_list(ctx: &mut Ctx, args: ObjectiveListArgs) -> Result<Outcome,
         ..RecordFilter::default()
     };
     list(ctx, "objective", "Objectives", &filter)
-}
-
-/// `status`: what an agent needs to resume work in this repository.
-pub fn status(ctx: &mut Ctx, args: StatusArgs) -> Result<Outcome, SillokError> {
-    let key = match args.all {
-        true => None,
-        false => capture::current_key(),
-    };
-    let store = match ctx.open() {
-        Ok(Some(value)) => value,
-        Ok(None) => {
-            return Ok(Outcome::read(
-                "status",
-                json!({ "context": key, "objectives": [], "recent": [] }),
-            ));
-        }
-        Err(error) => return Err(error),
-    };
-    let recent = match store.recent(key.as_deref(), args.limit) {
-        Ok(value) => value,
-        Err(error) => return Err(error),
-    };
-    // Objectives created in this repository, filtered in SQL before the
-    // limit, plus open objectives that parent recent work done here.
-    let mut objectives = match store.query(&RecordFilter {
-        kind: Some(RecordKind::Objective),
-        open_only: true,
-        context_key: key.clone(),
-        limit: 50,
-        ..RecordFilter::default()
-    }) {
-        Ok(value) => value,
-        Err(error) => return Err(error),
-    };
-    let mut parent_ids: Vec<RecordId> = recent
-        .iter()
-        .filter_map(|record| record.parent)
-        .filter(|parent| !objectives.iter().any(|objective| objective.id == *parent))
-        .collect();
-    parent_ids.sort();
-    parent_ids.dedup();
-    match store.records(&parent_ids) {
-        Ok(parents) => objectives.extend(
-            parents
-                .into_iter()
-                .filter(|record| record.kind == RecordKind::Objective && record.status.is_open()),
-        ),
-        Err(error) => return Err(error),
-    }
-    objectives.sort_by_key(|record| (record.created_at, record.id));
-    let human_text = format!(
-        "{}\n\n{}",
-        human::list("Open objectives", &objectives, &ctx.zone),
-        human::list("Recent", &recent, &ctx.zone)
-    );
-    Ok(Outcome::read(
-        "status",
-        json!({
-            "context": key,
-            "objectives": views::records(&objectives, ctx.full),
-            "recent": views::records(&recent, ctx.full),
-        }),
-    )
-    .with_human(human_text)
-    .with_warnings(std::mem::take(&mut ctx.warnings)))
 }
 
 fn list(

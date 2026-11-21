@@ -7,7 +7,7 @@
 use std::path::Path;
 use std::process::{Child, Command, Stdio};
 
-use crate::domain::event::context::{WorkContext, sanitize_remote};
+use crate::domain::event::context::{Scope, WorkContext, sanitize_remote};
 
 /// Environment variable naming the agent session, recorded on each event.
 pub const SESSION_ENV: &str = "SILLOK_SESSION";
@@ -72,18 +72,53 @@ pub fn capture() -> (WorkContext, Vec<String>) {
     )
 }
 
-/// Grouping key for `status`: the repository root, else the working directory.
-pub fn current_key() -> Option<String> {
+/// Scope for `status`: the repository around the working directory, found
+/// with two parallel Git queries, else the directory itself.
+pub fn current_scope() -> Option<Scope> {
     let cwd = match std::env::current_dir() {
-        Ok(path) => path.display().to_string(),
+        Ok(path) => path,
         Err(_) => return None,
     };
-    match finish(spawn(
-        Some(Path::new(&cwd)),
-        &["rev-parse", "--show-toplevel"],
-    )) {
-        Some(root) => Some(root),
-        None => Some(cwd),
+    let dir = Some(cwd.as_path());
+    let rev = spawn(dir, &["rev-parse", "--show-toplevel", "--git-common-dir"]);
+    let remote = spawn(dir, &["config", "--get", "remote.origin.url"]);
+    let rev = finish(rev);
+    // Always reaped, even when the directory turns out not to be a repository.
+    let remote = finish(remote).map(|url| sanitize_remote(&url));
+    let mut lines = match &rev {
+        Some(output) => output.lines(),
+        None => "".lines(),
+    };
+    let root = non_empty(lines.next().map(str::to_string));
+    let common = lines.next();
+    Some(match root {
+        Some(root) => Scope {
+            main_root: match common {
+                Some(value) => main_checkout(value, &root),
+                None => None,
+            },
+            root,
+            remote,
+        },
+        None => Scope {
+            root: cwd.display().to_string(),
+            main_root: None,
+            remote: None,
+        },
+    })
+}
+
+/// Root of the main checkout, given the common Git directory of a linked
+/// worktree. Git prints that directory as an absolute path ending in `.git`
+/// from a linked worktree and as a relative one from the main checkout.
+fn main_checkout(common_dir: &str, root: &str) -> Option<String> {
+    let path = Path::new(common_dir.trim());
+    if !path.is_absolute() || path.file_name() != Some(std::ffi::OsStr::new(".git")) {
+        return None;
+    }
+    match path.parent() {
+        Some(parent) if parent != Path::new(root) => Some(parent.display().to_string()),
+        Some(_) | None => None,
     }
 }
 
@@ -121,5 +156,25 @@ fn non_empty(value: Option<String>) -> Option<String> {
     match value {
         Some(text) if !text.trim().is_empty() => Some(text.trim().to_string()),
         Some(_) | None => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::main_checkout;
+
+    #[test]
+    fn only_linked_worktrees_have_a_main_checkout() {
+        assert_eq!(
+            main_checkout("/work/repo/.git", "/work/repo-wt"),
+            Some("/work/repo".to_string())
+        );
+        // The main checkout itself, a relative path, and a submodule's Git directory.
+        assert_eq!(main_checkout("/work/repo/.git", "/work/repo"), None);
+        assert_eq!(main_checkout(".git", "/work/repo"), None);
+        assert_eq!(
+            main_checkout("/work/repo/.git/modules/x", "/work/repo/x"),
+            None
+        );
     }
 }

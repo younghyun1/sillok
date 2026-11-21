@@ -30,6 +30,21 @@ impl WorkContext {
     }
 }
 
+/// The repository `status` is asked about, as seen from the working directory.
+///
+/// Work recorded in another worktree or clone of the same repository has a
+/// different root path, so a root alone would hide it; the main checkout's
+/// root and the remote URL tie those contexts together.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Scope {
+    /// Repository root, else the working directory.
+    pub root: String,
+    /// Root of the main checkout when `root` is a linked worktree.
+    pub main_root: Option<String>,
+    /// `origin` URL, sanitized like the one stored with each event.
+    pub remote: Option<String>,
+}
+
 /// Removes `user[:password]@` from URL-style Git remotes.
 ///
 /// Remote URLs are copied into every event and pushed to the sync remote, so

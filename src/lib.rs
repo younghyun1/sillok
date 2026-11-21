@@ -19,6 +19,8 @@ pub mod error;
 #[doc(hidden)]
 pub mod legacy;
 #[doc(hidden)]
+pub mod skill;
+#[doc(hidden)]
 pub mod storage;
 #[doc(hidden)]
 pub mod sync;

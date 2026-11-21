@@ -7,15 +7,17 @@
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use rusqlite::{Connection, OpenFlags, OptionalExtension, TransactionBehavior, params};
+use rusqlite::{Connection, OpenFlags, TransactionBehavior, params};
 
 use crate::domain::id::ArchiveId;
 use crate::domain::time::Timestamp;
 use crate::error::SillokError;
-use crate::legacy::v2_store::is_v2_store;
 use crate::storage::path::ensure_parent;
+use crate::storage::sqlite::meta::{
+    Layout, StoreInfo, read_info, read_versions, write_info, write_revision,
+};
 use crate::storage::sqlite::migrate;
-use crate::storage::sqlite::schema::{self, STORE_VERSION};
+use crate::storage::sqlite::schema::{self, SCHEMA_REV, STORE_VERSION};
 
 /// How long a writer waits for another writer before `store_busy`.
 pub const BUSY_TIMEOUT: Duration = Duration::from_secs(10);
@@ -27,13 +29,6 @@ pub enum OpenMode {
     Existing,
     /// Missing stores are created.
     Create,
-}
-
-/// Identity stored in `store_meta`.
-#[derive(Debug, Clone, Copy)]
-pub struct StoreInfo {
-    pub archive_id: ArchiveId,
-    pub created_at: Timestamp,
 }
 
 /// One open store connection for the duration of a command.
@@ -56,27 +51,46 @@ impl Store {
             if let Err(error) = ensure_parent(path) {
                 return Err(error);
             }
-        } else {
-            match needs_migration(path) {
-                Ok(true) => match migrate::migrate_v2(path) {
-                    Ok(Some(report)) => warnings.push(report.summary()),
-                    Ok(None) => {}
-                    Err(error) => return Err(error),
-                },
-                Ok(false) => {}
-                Err(error) => return Err(error),
-            }
         }
-        let conn = match connect(path, mode == OpenMode::Create) {
+        let mut conn = match connect(path, mode == OpenMode::Create) {
             Ok(value) => value,
             Err(error) => return Err(error),
         };
+        let mut layout = match Layout::read(&conn) {
+            Ok(value) => value,
+            Err(error) => return Err(error),
+        };
+        if layout == Layout::Legacy {
+            // Migration swaps the database file, so this handle closes first.
+            drop(conn);
+            match migrate::migrate_v2(path) {
+                Ok(Some(report)) => warnings.push(report.summary()),
+                Ok(None) => {}
+                Err(error) => return Err(error),
+            }
+            conn = match connect(path, false) {
+                Ok(value) => value,
+                Err(error) => return Err(error),
+            };
+            layout = match Layout::read(&conn) {
+                Ok(value) => value,
+                Err(error) => return Err(error),
+            };
+        }
         let mut store = Self {
             conn,
             path: path.to_path_buf(),
             warnings,
         };
-        match store.ensure_schema() {
+        let ready = match layout {
+            Layout::Current => store.check_version(),
+            Layout::Empty => store.create_schema(),
+            Layout::Legacy => Err(SillokError::datashape(
+                "unsupported_datashape",
+                "store is still in the 0.x layout after migration",
+            )),
+        };
+        match ready {
             Ok(()) => Ok(Some(store)),
             Err(error) => Err(error),
         }
@@ -97,19 +111,48 @@ impl Store {
         write_info(&self.conn, info)
     }
 
-    /// Creates the schema on an empty file and checks the version otherwise.
-    fn ensure_schema(&mut self) -> Result<(), SillokError> {
-        match meta(&self.conn, "store_version") {
-            Ok(Some(version)) if version == STORE_VERSION => return Ok(()),
-            Ok(Some(version)) => {
+    /// Checks the store version and applies additive schema revisions.
+    fn check_version(&mut self) -> Result<(), SillokError> {
+        let (version, revision) = match read_versions(&self.conn) {
+            Ok(value) => value,
+            Err(error) => return Err(error),
+        };
+        match version {
+            Some(value) if value == STORE_VERSION => {}
+            Some(value) => {
                 return Err(SillokError::datashape(
                     "unsupported_datashape",
-                    format!("store version `{version}` needs a newer sillok"),
+                    format!("store version `{value}` needs a newer sillok"),
                 ));
             }
-            Ok(None) => {}
-            Err(error) => return Err(error),
+            // A `store_meta` table without a version: an interrupted first
+            // write. Creating the schema is idempotent and fills it in.
+            None => return self.create_schema(),
         }
+        if revision >= SCHEMA_REV {
+            return Ok(());
+        }
+        let tx = match self
+            .conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+        {
+            Ok(value) => value,
+            Err(error) => return Err(error.into()),
+        };
+        if let Err(error) = schema::add(&tx) {
+            return Err(error);
+        }
+        if let Err(error) = write_revision(&tx) {
+            return Err(error);
+        }
+        match tx.commit() {
+            Ok(()) => Ok(()),
+            Err(error) => Err(error.into()),
+        }
+    }
+
+    /// Creates the schema and identity on an empty database.
+    fn create_schema(&mut self) -> Result<(), SillokError> {
         // WAL is persistent in the file, so this runs once per store.
         if let Err(error) = self.conn.query_row("PRAGMA journal_mode = WAL", [], |row| {
             row.get::<_, String>(0)
@@ -143,6 +186,9 @@ impl Store {
                 return Err(error.into());
             }
         }
+        if let Err(error) = write_revision(&tx) {
+            return Err(error);
+        }
         match tx.commit() {
             Ok(()) => Ok(()),
             Err(error) => Err(error.into()),
@@ -169,97 +215,4 @@ pub fn connect(path: &Path, create: bool) -> Result<Connection, SillokError> {
     }
     conn.set_prepared_statement_cache_capacity(64);
     Ok(conn)
-}
-
-fn needs_migration(path: &Path) -> Result<bool, SillokError> {
-    let conn = match connect(path, false) {
-        Ok(value) => value,
-        Err(error) => return Err(error),
-    };
-    is_v2_store(&conn)
-}
-
-/// Reads a `store_meta` value; a missing table reads as absent.
-pub fn meta(conn: &Connection, key: &str) -> Result<Option<String>, SillokError> {
-    let exists: Option<String> = match conn
-        .query_row(
-            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'store_meta'",
-            [],
-            |row| row.get(0),
-        )
-        .optional()
-    {
-        Ok(value) => value,
-        Err(error) => return Err(error.into()),
-    };
-    if exists.is_none() {
-        return Ok(None);
-    }
-    match conn
-        .query_row(
-            "SELECT store_meta_value FROM store_meta WHERE store_meta_key = ?1",
-            [key],
-            |row| row.get(0),
-        )
-        .optional()
-    {
-        Ok(value) => Ok(value),
-        Err(error) => Err(error.into()),
-    }
-}
-
-/// Reads the archive identity from `store_meta`.
-pub fn read_info(conn: &Connection) -> Result<StoreInfo, SillokError> {
-    let archive_id = match meta(conn, "archive_id") {
-        Ok(Some(raw)) => match ArchiveId::parse(&raw) {
-            Ok(value) => value,
-            Err(error) => return Err(error),
-        },
-        Ok(None) => {
-            return Err(SillokError::datashape(
-                "invalid_datashape",
-                "store has no archive id",
-            ));
-        }
-        Err(error) => return Err(error),
-    };
-    let created_at = match meta(conn, "created_at_ms") {
-        Ok(Some(raw)) => match raw.parse::<i64>() {
-            Ok(value) => Timestamp::from_millis(value),
-            Err(error) => {
-                return Err(SillokError::datashape(
-                    "invalid_datashape",
-                    error.to_string(),
-                ));
-            }
-        },
-        Ok(None) => {
-            return Err(SillokError::datashape(
-                "invalid_datashape",
-                "store has no creation time",
-            ));
-        }
-        Err(error) => return Err(error),
-    };
-    Ok(StoreInfo {
-        archive_id,
-        created_at,
-    })
-}
-
-/// Writes the archive identity.
-pub fn write_info(conn: &Connection, info: StoreInfo) -> Result<(), SillokError> {
-    for (key, value) in [
-        ("archive_id", info.archive_id.to_string()),
-        ("created_at_ms", info.created_at.as_millis().to_string()),
-    ] {
-        if let Err(error) = conn.execute(
-            "INSERT INTO store_meta (store_meta_key, store_meta_value) VALUES (?1, ?2)
-             ON CONFLICT (store_meta_key) DO UPDATE SET store_meta_value = excluded.store_meta_value",
-            params![key, value],
-        ) {
-            return Err(error.into());
-        }
-    }
-    Ok(())
 }

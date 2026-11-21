@@ -109,6 +109,18 @@ pub fn run_in(
         .env("SILLOK_STORE", store)
         .env("SILLOK_TZ", "UTC")
         .env("TZ", "UTC")
+        // `status` refreshes installed skills under the home directory, so
+        // tests get an empty one beside the store instead of the real home.
+        .env(
+            "HOME",
+            match store.parent() {
+                Some(parent) => parent,
+                None => cwd,
+            },
+        )
+        .env_remove("CLAUDE_CONFIG_DIR")
+        .env_remove("CODEX_HOME")
+        .env_remove("SILLOK_SKILL_AUTOUPDATE")
         .env_remove("SILLOK_OUTPUT")
         .env_remove("SILLOK_SESSION")
         .env_remove("SILLOK_ACTOR")

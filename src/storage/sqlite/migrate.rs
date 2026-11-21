@@ -17,7 +17,8 @@ use crate::legacy::convert::convert;
 use crate::legacy::v2_store::{is_v2_store, read_v2_store};
 use crate::storage::lock::FileLock;
 use crate::storage::path::{remove_if_exists, with_suffix};
-use crate::storage::sqlite::open::{StoreInfo, connect, write_info};
+use crate::storage::sqlite::meta::{StoreInfo, write_info, write_revision};
+use crate::storage::sqlite::open::connect;
 use crate::storage::sqlite::schema::{self, STORE_VERSION};
 use crate::storage::sqlite::{events, rebuild};
 
@@ -155,6 +156,9 @@ fn build(
         created_at: conversion.created_at,
     };
     if let Err(error) = write_info(&tx, info) {
+        return Err(error);
+    }
+    if let Err(error) = write_revision(&tx) {
         return Err(error);
     }
     for event in &conversion.events {

@@ -4,12 +4,14 @@ use std::collections::{HashMap, HashSet};
 
 use rusqlite::ToSql;
 
+use crate::domain::event::context::Scope;
 use crate::domain::event::envelope::Event;
 use crate::domain::id::RecordId;
 use crate::domain::record::{Record, RecordKind, RecordStatus};
 use crate::domain::time::Timestamp;
 use crate::error::SillokError;
 use crate::storage::sqlite::open::Store;
+use crate::storage::sqlite::recent::{scope_clause, scope_params};
 use crate::storage::sqlite::{events, records};
 
 /// Activity labels per touched record.
@@ -32,8 +34,8 @@ pub struct RecordFilter {
     pub text: Option<String>,
     /// Substring of the repository root, else working directory.
     pub context: Option<String>,
-    /// Exact repository root, else working directory, of the creating event.
-    pub context_key: Option<String>,
+    /// Repository the creating event was recorded in.
+    pub scope: Option<Scope>,
     /// Newest records kept; output is still oldest first.
     pub limit: usize,
 }
@@ -113,13 +115,12 @@ impl Store {
                 Box::new(context.clone()),
             );
         }
-        if let Some(key) = &filter.context_key {
-            bind(
-                &mut clauses,
-                &mut args,
-                "COALESCE(c.work_context_git_root, c.work_context_cwd) = #",
-                Box::new(key.clone()),
-            );
+        if let Some(scope) = &filter.scope {
+            let (root, main, remote) = scope_params(scope);
+            clauses.push(scope_clause(args.len() + 1));
+            args.push(Box::new(root.to_string()));
+            args.push(Box::new(main.to_string()));
+            args.push(Box::new(remote.map(str::to_string)));
         }
         let limit = match i64::try_from(filter.limit) {
             Ok(value) => value,
@@ -204,7 +205,7 @@ impl Store {
                 Ok(value) => value,
                 Err(error) => return Err(error),
             };
-            wanted = Vec::new();
+            wanted.clear();
             for parent in parents {
                 if parent.status == RecordStatus::Retracted || !present.insert(parent.id) {
                     continue;

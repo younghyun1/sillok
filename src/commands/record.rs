@@ -15,6 +15,7 @@ use crate::domain::id::RecordId;
 use crate::domain::record::{Record, RecordKind, RecordStatus};
 use crate::domain::text;
 use crate::error::SillokError;
+use crate::storage::sqlite::open::Store;
 
 /// `note`.
 pub fn note(ctx: &mut Ctx, args: NoteArgs) -> Result<Outcome, SillokError> {
@@ -78,19 +79,26 @@ pub fn objective_complete(
         (Ok(id), Ok(note)) => (id, note),
         (Err(error), _) | (_, Err(error)) => return Err(error),
     };
+    let mut store = match ctx.open() {
+        Ok(Some(value)) => value,
+        Ok(None) => return Err(SillokError::RecordNotFound(record_id.to_string())),
+        Err(error) => return Err(error),
+    };
     // Kind never changes after creation, so checking before the write is race-free.
-    match require(ctx, record_id) {
-        Ok(record) if record.kind == RecordKind::Objective => {}
-        Ok(_) => {
+    match store.record(record_id) {
+        Ok(Some(record)) if record.kind == RecordKind::Objective => {}
+        Ok(Some(_)) => {
             return Err(SillokError::operation(
                 "invalid_record_kind",
                 format!("record `{record_id}` is a task; use `amend --status completed`"),
             ));
         }
+        Ok(None) => return Err(SillokError::RecordNotFound(record_id.to_string())),
         Err(error) => return Err(error),
     }
-    append(
+    append_to(
         ctx,
+        &mut store,
         "objective",
         EventKind::RecordAmended {
             record_id,
@@ -208,6 +216,16 @@ fn append(ctx: &mut Ctx, command: &'static str, kind: EventKind) -> Result<Outco
         Ok(value) => value,
         Err(error) => return Err(error),
     };
+    append_to(ctx, &mut store, command, kind)
+}
+
+/// Appends through a store the caller already opened.
+fn append_to(
+    ctx: &mut Ctx,
+    store: &mut Store,
+    command: &'static str,
+    kind: EventKind,
+) -> Result<Outcome, SillokError> {
     let stamp = ctx.stamp();
     let record = match store.append(stamp, kind) {
         Ok(value) => value,
@@ -224,19 +242,6 @@ fn written(ctx: &mut Ctx, command: &'static str, record: &Record) -> Outcome {
     )
     .with_human(human::line(record, &ctx.zone))
     .with_warnings(std::mem::take(&mut ctx.warnings))
-}
-
-fn require(ctx: &mut Ctx, id: RecordId) -> Result<Record, SillokError> {
-    let store = match ctx.open() {
-        Ok(Some(value)) => value,
-        Ok(None) => return Err(SillokError::RecordNotFound(id.to_string())),
-        Err(error) => return Err(error),
-    };
-    match store.record(id) {
-        Ok(Some(record)) => Ok(record),
-        Ok(None) => Err(SillokError::RecordNotFound(id.to_string())),
-        Err(error) => Err(error),
-    }
 }
 
 /// Writes may not set `retracted`; that goes through `retract` so a reason is kept.

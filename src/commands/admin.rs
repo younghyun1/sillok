@@ -11,13 +11,11 @@ use crate::cli::output::views;
 use crate::commands::ctx::Ctx;
 use crate::domain::id::ArchiveId;
 use crate::error::SillokError;
+use crate::skill::content::GUIDE;
 use crate::storage::path::with_suffix;
 use crate::storage::sqlite::events;
-use crate::storage::sqlite::open::{StoreInfo, write_info};
+use crate::storage::sqlite::meta::{StoreInfo, write_info};
 use crate::storage::sqlite::reads::RecordFilter;
-
-/// The agent guide printed by `sillok guide`.
-pub const GUIDE: &str = include_str!("../guide.md");
 
 /// `init`.
 pub fn init(ctx: &mut Ctx) -> Result<Outcome, SillokError> {

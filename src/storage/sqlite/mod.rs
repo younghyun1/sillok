@@ -1,5 +1,6 @@
 pub mod doctor;
 pub mod events;
+pub mod meta;
 pub mod migrate;
 pub mod open;
 pub mod reads;
