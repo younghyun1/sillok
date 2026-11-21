@@ -17,4 +17,4 @@ Records present only as ancestors carry no `activity`, which is how a reader tel
 
 ## `status`
 
-`status` resolves the current repository root (else the working directory), lists the most recently touched records whose events were recorded in that context, and the open objectives that were created there or are parents of that recent work. `--all` drops the context filter.
+`status` resolves the current repository with two parallel Git queries: its root (else the working directory), the main checkout when the root is a linked worktree, and the sanitized `origin` URL. A context belongs to the repository when it was recorded under either root, in the same directory outside Git, or in any checkout with the same remote, so work from other worktrees, other clones, and other machines is included. `status` lists the most recently touched records with events in those contexts, and the open objectives that were created there or are parents of that recent work. `--all` drops the filter.

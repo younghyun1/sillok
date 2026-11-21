@@ -12,7 +12,7 @@ Tables are `STRICT`, columns carry their table's name as a prefix, and constrain
 
 | Table | Role |
 | --- | --- |
-| `store_meta` | `store_version`, `archive_id`, `created_at_ms` |
+| `store_meta` | `store_version`, `schema_rev`, `archive_id`, `created_at_ms` |
 | `event` | The log: `event_id`, `event_kind`, `event_record_id`, occurred/recorded ms, `event_work_context_id`, `event_json` (canonical bytes) |
 | `work_context` | Deduplicated contexts; the JSON plus indexed `cwd`, `git_root`, `session` |
 | `record` | Current state per record (`WITHOUT ROWID`), including `record_prior_status` for restore |
@@ -20,11 +20,15 @@ Tables are `STRICT`, columns carry their table's name as a prefix, and constrain
 
 `event_json` is a deliberate exception to normalization: those bytes are the archive's source of truth and what sync compares. Every other table is a projection; `rebuild` deletes and replays them inside one transaction (no file swap, no backup), which `sillok doctor --repair` and sync use.
 
-Indexes follow the queries: events by occurred time (day windows), by record (history), by recorded time, and by context (status); records by parent (trees), by kind and status (objective lists), by created and updated time; tags by text. `work_context` rows are insert-only, so its foreign keys need no delete-side index; `record_work_context_idx` exists for the status query.
+Indexes follow the queries: events by occurred time (day windows), by record (history), by recorded time, and by context (status); records by parent (trees), by kind and status (objective lists), by created and updated time; tags by text; contexts by root, by directory, and by `json_extract(work_context_json, '$.git_remote')`, which together resolve the repository `status` asks about. `work_context` rows are insert-only, so its foreign keys need no delete-side index; `record_work_context_idx` exists for the status query.
 
 ## Opening
 
-`Store::open` creates a missing store only for writes; reads against a missing store return empty results without creating a file. An existing file is classified before use: store version 3 opens directly, a 0.9/0.10 store (`sillok_meta.store_datashape_version = 2`) is migrated first, and anything else fails with `unsupported_datashape`.
+`Store::open` creates a missing store only for writes; reads against a missing store return empty results without creating a file. An existing file is classified on the command's own connection with one catalog query: store version 3 opens directly, a 0.9/0.10 store (`sillok_meta` present) is migrated first, after closing that connection because migration replaces the file, and any other version fails with `unsupported_datashape`.
+
+## Additive schema revisions
+
+Indexes added after store version 3 shipped are listed in `schema::ADDITIONS` and tracked by `store_meta.schema_rev`. Opening a store whose revision is behind applies them (`CREATE INDEX IF NOT EXISTS`) and raises the revision in one transaction; a higher revision written by a newer binary is never lowered. Because additions are only indexes, an older 1.x binary keeps working on the same file, and `store_version` stays 3. Anything that changes tables or event meaning needs a new store version instead.
 
 ## Migration from 0.9/0.10
 

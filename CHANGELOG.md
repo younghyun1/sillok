@@ -1,5 +1,32 @@
 # Changelog
 
+## 1.1.0
+
+### Added
+
+- **The agent skill ships in the binary.** `sillok skill install` writes the workflow as `sillok/SKILL.md` for Claude Code (`~/.claude/skills`) and Codex (`~/.codex/skills`, or `~/.agents/skills` when that is the root in use), or into any skill root with `--dir`. It is idempotent, replaces an existing copy, and keeps one copy per tool: a second copy Codex would also discover is named in a warning instead of being updated. `skill status` reports each copy as `current`, `outdated`, `newer`, `modified`, `unmanaged`, or `missing`; `skill print` prints the file.
+- **Installed skills follow upgrades.** Each installed file is stamped with the version and a digest. `sillok status` replaces a user-level copy that an older Sillok wrote and nobody edited, and says so once in `warnings`; hand-edited copies are reported and left alone, and files Sillok did not write are never touched. `SILLOK_SKILL_AUTOUPDATE=0` disables this.
+- `status` output gains `remote` when the repository has an `origin`.
+
+### Changed
+
+- **`status` covers the whole repository.** It matched the working tree's root path, so it came back empty inside a linked Git worktree and never showed work synced from another machine. It now also matches the main checkout of a linked worktree and every checkout with the same `origin` URL.
+- `sillok guide` and the skill are one text. It now states the record-before-the-turn-ends rule, the `correction` tag, and closing what you open.
+
+### Fixed
+
+- An exported but empty `SILLOK_STORE` was a usage error; it now means the default store, like the other variables.
+- `status` dropped its warnings when the store did not exist yet.
+
+### Performance
+
+- Every command opened the database twice, once only to look for a 0.x layout, and `objective complete` opened it four times. One connection now classifies the file with a single catalog query.
+- Repository matching for `status` uses a new expression index on the context's remote URL. Stores from 1.0 gain it on first open through an additive `schema_rev` in `store_meta`; no migration runs, and a 1.0 binary still opens the store.
+
+### Dependencies
+
+- rusqlite 0.40 to 0.43 (bundled SQLite), clap 4.6.9, uuid 1.29, zstd 0.14.4, and refreshed transitive dependencies.
+
 ## 1.0.2
 
 ### Fixed

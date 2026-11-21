@@ -5,17 +5,28 @@ Sillok is a structured chronicle of agent work: objectives, the tasks done under
 ## Install
 
 ```bash
-cargo install --path .
-sillok guide        # the agent workflow in one page
+cargo install sillok      # or, from a checkout: cargo install --path .
+sillok skill install      # install the agent skill for Claude Code and Codex
+sillok guide              # the same workflow, printed
 ```
 
-The binary is built for the host CPU (`.cargo/config.toml`). The first command after upgrading from 0.9 or 0.10 migrates the existing store in place; see [Upgrading from 0.x](#upgrading-from-0x).
+A checkout builds for the host CPU on nightly (`.cargo/config.toml`, `rust-toolchain.toml`); the crates.io build uses stable defaults. The first command after upgrading from 0.9 or 0.10 migrates the existing store in place; see [Upgrading from 0.x](#upgrading-from-0x).
 
 Linux and macOS use jemalloc; Windows uses Rust's system allocator. Windows builds need the Visual Studio C++ build tools and Windows SDK for bundled SQLite and zstd, but do not need a Unix shell or jemalloc build tools.
 
 ## For agents
 
-Add this to a repository's `AGENTS.md` or `CLAUDE.md`:
+The agent workflow ships inside the binary, so it always matches the installed version. `sillok skill install` writes it as a skill (`sillok/SKILL.md`) where each tool loads user-level skills:
+
+| Tool | Location |
+| --- | --- |
+| Claude Code | `~/.claude/skills`, or under `CLAUDE_CONFIG_DIR` |
+| Codex | `~/.codex/skills` (or under `CODEX_HOME`), else `~/.agents/skills` when that root already exists or holds the skill |
+| Anything else | `sillok skill install --dir <skill root>`, for example a project's `.claude/skills` |
+
+Install is idempotent: it replaces an existing copy, writes nothing when the copy is current, and keeps one copy per tool, naming a second one it finds instead of updating both. After an upgrade, `sillok status` refreshes user-level copies that Sillok wrote and nobody edited; a hand-edited copy is left alone and reported. `SILLOK_SKILL_AUTOUPDATE=0` turns the refresh off, and `sillok skill status` shows what is installed.
+
+For tools without skills, add this to a repository's `AGENTS.md` or `CLAUDE.md`:
 
 ````markdown
 ## Sillok
@@ -38,7 +49,7 @@ The CLI is shaped for that caller:
 - **Reads print compact JSON**: empty fields are omitted and the work context appears only with `--full`. `--json` adds the `{ok, command, generated_at, data, warnings}` envelope and `--human` prints text.
 - **Errors are JSON on stderr**, `{"error":"code","message":"..."}`, with exit code 1, or 2 for usage errors. Codes are stable across 1.x.
 - **Concurrency is safe**: many agents can read and write one store at once; SQLite WAL mode lets readers proceed during a write and makes writers wait instead of failing.
-- **Resuming is one command**: `sillok status` lists open objectives and recent work for the current repository.
+- **Resuming is one command**: `sillok status` lists open objectives and recent work for the current repository, including work recorded in its other worktrees and in other clones of the same remote.
 
 ## Model
 
@@ -61,17 +72,18 @@ Every change is an immutable event; current records are a projection that `sillo
 | `day [--date]` | A day as a tree with activity |
 | `tree <id>` | A record and its visible descendants |
 | `query [--since\|--from/--to\|--date] [--tag] [--status] [--kind] [--open] [--text] [--context] [--limit]` | Search |
-| `status [--all] [--limit]` | Open objectives and recent work here |
+| `status [--all] [--limit]` | Open objectives and recent work in this repository |
 | `export [--events] [--from] [--to]` | JSON lines: records, or raw events (the portable archive) |
 | `import <path> [--dry-run]` | Merge a 0.x store or archive, an events export, or a sync directory |
 | `doctor [--repair]` | Integrity check and replay comparison |
 | `sync [--dry-run]`, `sync remote set <url> [--branch] [--dir]`, `sync remote show` | Git sync |
 | `reset --yes` | Back up, then empty the store |
 | `guide` | Agent usage guide |
+| `skill install [--tool claude\|codex] [--dir <root>]`, `skill status`, `skill print` | Install, inspect, or print the agent skill |
 
 Global options: `--store`, `--tz`, `--at` (backfill: RFC 3339, or `YYYY-MM-DDTHH:MM[:SS]` in `--tz`), `--full`, `--json`, `--human`.
 
-Environment: `SILLOK_STORE` (default `$XDG_DATA_HOME/sillok/sillok.db`), `SILLOK_TZ` (default: system zone), `SILLOK_ACTOR` (default `agent`), `SILLOK_SESSION` (recorded on each event), `SILLOK_OUTPUT` (`compact`, `json`, or `human`), `SILLOK_LOG` (tracing filter; JSON logs go to stderr).
+Environment: `SILLOK_STORE` (default `$XDG_DATA_HOME/sillok/sillok.db`), `SILLOK_TZ` (default: system zone), `SILLOK_ACTOR` (default `agent`), `SILLOK_SESSION` (recorded on each event), `SILLOK_OUTPUT` (`compact`, `json`, or `human`), `SILLOK_SKILL_AUTOUPDATE` (`0` stops `status` from refreshing installed skills), `SILLOK_LOG` (tracing filter; JSON logs go to stderr). An empty variable counts as unset.
 
 The 0.10 spellings `tree --root`, `export json`, `migrate`, `truncate`, and `sync run` still work as hidden aliases.
 
