@@ -76,14 +76,14 @@ Every change is an immutable event; current records are a projection that `sillo
 | `export [--events] [--from] [--to]` | JSON lines: records, or raw events (the portable archive) |
 | `import <path> [--dry-run]` | Merge a 0.x store or archive, an events export, or a sync directory |
 | `doctor [--repair]` | Integrity check and replay comparison |
-| `sync [--dry-run]`, `sync remote set <url> [--branch] [--dir]`, `sync remote show` | Git sync |
+| `sync [--dry-run]`, `sync remote set <url> [--branch] [--dir]`, `sync remote show`, `sync auto <minutes>` | Git sync |
 | `reset --yes` | Back up, then empty the store |
 | `guide` | Agent usage guide |
 | `skill install [--tool claude\|codex] [--dir <root>]`, `skill status`, `skill print` | Install, inspect, or print the agent skill |
 
 Global options: `--store`, `--tz`, `--at` (backfill: RFC 3339, or `YYYY-MM-DDTHH:MM[:SS]` in `--tz`), `--full`, `--json`, `--human`.
 
-Environment: `SILLOK_STORE` (default `$XDG_DATA_HOME/sillok/sillok.db`), `SILLOK_TZ` (default: system zone), `SILLOK_ACTOR` (default `agent`), `SILLOK_SESSION` (recorded on each event), `SILLOK_OUTPUT` (`compact`, `json`, or `human`), `SILLOK_SKILL_AUTOUPDATE` (`0` stops `status` from refreshing installed skills), `SILLOK_LOG` (tracing filter; JSON logs go to stderr). An empty variable counts as unset.
+Environment: `SILLOK_STORE` (default `$XDG_DATA_HOME/sillok/sillok.db`), `SILLOK_TZ` (default: system zone), `SILLOK_ACTOR` (default `agent`), `SILLOK_SESSION` (recorded on each event), `SILLOK_OUTPUT` (`compact`, `json`, or `human`), `SILLOK_SKILL_AUTOUPDATE` (`0` stops `status` from refreshing installed skills), `SILLOK_AUTOSYNC` (`0` stops `status` from starting a background sync), `SILLOK_LOG` (tracing filter; JSON logs go to stderr). An empty variable counts as unset.
 
 The 0.10 spellings `tree --root`, `export json`, `migrate`, `truncate`, and `sync run` still work as hidden aliases.
 
@@ -93,6 +93,8 @@ The 0.10 spellings `tree --root`, `export json`, `migrate`, `truncate`, and `syn
 sillok sync remote set git@github.com:you/sillok-archive.git
 sillok sync
 ```
+
+Once a remote is set, `sillok status` also starts a sync in the background when the last one is more than an hour old, and returns without waiting; a failure shows up in the next `status` under `warnings`. `sillok sync auto <minutes>` changes the interval, and `0` (or `SILLOK_AUTOSYNC=0`) turns background sync off.
 
 The remote holds `sillok/manifest.json` and one plain-text JSON-lines file per month (`sillok/events/2026-09.jsonl`), sorted by recorded time. New events append to the current month, so each sync commit is a small readable diff and Git's own compression does the rest. Sync unions events by id: pulls what the local store lacks, pushes what the remote lacks, and rewrites only the months that changed. Events of a type this version does not know are kept and pushed back byte for byte. If one event id carries different bytes on two machines, both keep the lexicographically smaller bytes and report a warning; sync never stops for a human to resolve a conflict. Git runs non-interactively (`GIT_TERMINAL_PROMPT=0`, SSH `BatchMode`), so missing credentials fail fast instead of hanging an agent.
 

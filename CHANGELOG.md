@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.1.1
+
+### Added
+
+- **Background sync.** With a sync remote configured, `sillok status` starts `sillok sync` as a detached process when the last attempt is more than 60 minutes old, and returns without waiting. The result is kept in `<store>.sync.state.json`; a failure appears in the next `status` under `warnings`, and `sync remote show` prints the last result. `sillok sync auto <minutes>` sets the interval, and `0` or `SILLOK_AUTOSYNC=0` turns it off. Before this, a store was only as current as the last manual `sync`.
+
+### Performance
+
+- **System allocator.** jemalloc is gone on every platform: a command lives for about a millisecond, so the allocator's startup work cost more than it returned.
+- **Logging is set up on demand.** The JSON log subscriber was built on every invocation although only migration and sync cleanup log. `SILLOK_LOG` still installs it at startup.
+- **One fewer connection per sync.** Sync ran `ls-remote` and then `fetch` before any push. It now fetches first and recognises a branch that does not exist yet from the failure, falling back to `ls-remote` only for an unfamiliar message.
+
+### Compatibility
+
+The remote layout, event format, and store are unchanged, and 1.0 and 1.1.0 replicas sync with 1.1.1 as before. The sync sidecar gains an optional `auto_minutes` that older binaries ignore.
+
 ## 1.1.0
 
 ### Added

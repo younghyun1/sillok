@@ -14,7 +14,8 @@ const AFTER_HELP: &str =
     "Writes print the affected id; reads print compact JSON; errors are JSON on stderr.
 Run `sillok guide` for the agent workflow and `sillok skill install` to install it as
 an agent skill. Environment: SILLOK_STORE, SILLOK_TZ, SILLOK_ACTOR, SILLOK_SESSION,
-SILLOK_OUTPUT (compact|json|human), SILLOK_SKILL_AUTOUPDATE (0 disables), SILLOK_LOG.";
+SILLOK_OUTPUT (compact|json|human), SILLOK_SKILL_AUTOUPDATE and SILLOK_AUTOSYNC
+(0 disables), SILLOK_LOG.";
 
 /// Structured chronicle of agent work: objectives, tasks, and what happened each day.
 #[derive(Debug, Parser)]

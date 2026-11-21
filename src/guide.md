@@ -49,7 +49,7 @@ Reads print one line of compact JSON without empty fields. `--full` adds the wor
 - Backfill with `--at 2026-09-29T16:45:00`; naive times use `--tz` or `SILLOK_TZ`, else the system zone.
 - `SILLOK_SESSION` labels events with the agent session and `SILLOK_ACTOR` names the writer; set them when the harness exposes them.
 - Parallel agents are safe: commands wait for each other instead of failing.
-- `sillok sync` exchanges events through the configured Git remote and never prompts; run it only when the user's workflow calls for it.
+- `sillok sync` exchanges events through the configured Git remote and never prompts. `status` starts one in the background when the last is over an hour old and reports a failure in `warnings`; run it yourself only when asked or to retry.
 - Never run `sillok reset --yes` unless the user explicitly asks to erase the chronicle.
 - A project instruction that opts out of Sillok overrides this guide.
 - A rejected command means the binary on `PATH` is older than this guide; check `sillok --version`.
