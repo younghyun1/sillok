@@ -46,18 +46,18 @@ manual_ok_err = "allow"
 bitcode = { version = "0.6.9", default-features = false, features = ["std", "derive"] }
 chrono = { version = "0.4.45", default-features = false, features = ["std", "clock"] }
 chrono-tz = { version = "0.10.4", default-features = false, features = ["std"] }
-clap = { version = "4.6.7", default-features = false, features = ["std", "derive", "env", "help", "usage", "error-context", "suggestions"] }
+clap = { version = "4.6.9", default-features = false, features = ["std", "derive", "env", "help", "usage", "error-context", "suggestions"] }
 directories = "6.0.0"
 iana-time-zone = "0.1.65"
 nutype = { version = "0.8.0", default-features = false, features = ["std"] }
-rusqlite = { version = "0.40.2", default-features = false, features = ["bundled", "cache"] }
+rusqlite = { version = "0.43.0", default-features = false, features = ["bundled", "cache"] }
 serde = { version = "1.0.229", default-features = false, features = ["std", "derive"] }
 serde_json = { version = "1.0.154", default-features = false, features = ["std", "preserve_order"] }
 thiserror = "2.0.21"
 tracing = { version = "0.1.44", default-features = false, features = ["std", "release_max_level_info"] }
 tracing-subscriber = { version = "0.3.23", default-features = false, features = ["std", "fmt", "json", "env-filter", "smallvec"] }
-uuid = { version = "1.28.0", default-features = false, features = ["std", "v7", "v5"] }
-zstd = { version = "0.14.3", default-features = false }
+uuid = { version = "1.29.3", default-features = false, features = ["std", "v7", "v5"] }
+zstd = { version = "0.14.4", default-features = false }
 
 # Use the system allocator on Windows; jemalloc's Rust wrapper does not test MSVC.
 # Background purging only works on Linux and warns on every invocation on macOS.
