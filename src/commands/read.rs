@@ -10,7 +10,6 @@ use crate::cli::human::records as human;
 use crate::cli::output::outcome::Outcome;
 use crate::cli::output::views;
 use crate::commands::ctx::Ctx;
-use crate::domain::id::RecordId;
 use crate::domain::record::{Record, RecordKind};
 use crate::domain::text;
 use crate::domain::time::Timestamp;
@@ -20,7 +19,7 @@ use crate::storage::sqlite::reads::RecordFilter;
 
 /// `show`.
 pub fn show(ctx: &mut Ctx, id: &str) -> Result<Outcome, SillokError> {
-    let record_id = match RecordId::parse(id) {
+    let record_id = match ctx.record_id(id) {
         Ok(value) => value,
         Err(error) => return Err(error),
     };
@@ -93,7 +92,7 @@ pub fn tree(ctx: &mut Ctx, args: TreeArgs) -> Result<Outcome, SillokError> {
         (Some(id), _, _) | (None, Some(id), _) => id,
         (None, None, date) => return day(ctx, DayArgs { date }),
     };
-    let record_id = match RecordId::parse(&raw) {
+    let record_id = match ctx.record_id(&raw) {
         Ok(value) => value,
         Err(error) => return Err(error),
     };

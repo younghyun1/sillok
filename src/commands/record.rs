@@ -9,25 +9,34 @@ use crate::cli::args::record::{
 use crate::cli::human::records as human;
 use crate::cli::output::outcome::Outcome;
 use crate::cli::output::views;
-use crate::commands::ctx::{Ctx, optional_id};
+use crate::commands::batch;
+use crate::commands::ctx::Ctx;
 use crate::domain::event::kind::EventKind;
 use crate::domain::id::RecordId;
 use crate::domain::record::{Record, RecordKind, RecordStatus};
 use crate::domain::text;
 use crate::error::SillokError;
 use crate::storage::sqlite::open::Store;
+use crate::sync::auto;
 
 /// `note`.
 pub fn note(ctx: &mut Ctx, args: NoteArgs) -> Result<Outcome, SillokError> {
+    let entry = match (args.stdin, &args.text) {
+        (true, _) => return batch::notes(ctx, args),
+        (false, Some(value)) => value.clone(),
+        (false, None) => {
+            return Err(SillokError::Usage("note needs text or --stdin".to_string()));
+        }
+    };
     let status = match writable_status(args.status) {
         Ok(value) => value,
         Err(error) => return Err(error),
     };
     let kind = match (
-        text::entry(args.text),
+        text::entry(entry),
         text::optional_detail(args.purpose, "purpose"),
         text::tags(args.tags),
-        optional_id(args.parent.as_deref()),
+        ctx.optional_record_id(args.parent.as_deref()),
     ) {
         (Ok(text), Ok(purpose), Ok(tags), Ok(parent_id)) => EventKind::TaskRecorded {
             record_id: RecordId::new_v7(),
@@ -53,7 +62,7 @@ pub fn objective_add(ctx: &mut Ctx, args: ObjectiveAddArgs) -> Result<Outcome, S
     let kind = match (
         text::entry(args.text),
         text::tags(args.tags),
-        optional_id(args.parent.as_deref()),
+        ctx.optional_record_id(args.parent.as_deref()),
     ) {
         (Ok(text), Ok(tags), Ok(parent_id)) => EventKind::ObjectiveAdded {
             record_id: RecordId::new_v7(),
@@ -73,7 +82,7 @@ pub fn objective_complete(
     args: ObjectiveCompleteArgs,
 ) -> Result<Outcome, SillokError> {
     let (record_id, note) = match (
-        RecordId::parse(&args.id),
+        ctx.record_id(&args.id),
         text::optional_detail(args.note, "note"),
     ) {
         (Ok(id), Ok(note)) => (id, note),
@@ -96,6 +105,11 @@ pub fn objective_complete(
         Ok(None) => return Err(SillokError::RecordNotFound(record_id.to_string())),
         Err(error) => return Err(error),
     }
+    // Finished work is what the other replicas are waiting for, so this is
+    // the second moment, after session start, that a due sync is started.
+    if let Some(notice) = auto::maybe_start(&ctx.store_path, ctx.now) {
+        ctx.warnings.push(notice);
+    }
     append_to(
         ctx,
         &mut store,
@@ -114,7 +128,7 @@ pub fn objective_complete(
 
 /// `amend`.
 pub fn amend(ctx: &mut Ctx, args: AmendArgs) -> Result<Outcome, SillokError> {
-    let record_id = match RecordId::parse(&args.id) {
+    let record_id = match ctx.record_id(&args.id) {
         Ok(value) => value,
         Err(error) => return Err(error),
     };
@@ -171,8 +185,8 @@ pub fn amend(ctx: &mut Ctx, args: AmendArgs) -> Result<Outcome, SillokError> {
 /// `move`.
 pub fn move_record(ctx: &mut Ctx, args: MoveArgs) -> Result<Outcome, SillokError> {
     let (record_id, parent_id) = match (
-        RecordId::parse(&args.id),
-        optional_id(args.parent.as_deref()),
+        ctx.record_id(&args.id),
+        ctx.optional_record_id(args.parent.as_deref()),
     ) {
         (Ok(id), Ok(parent)) => (id, parent),
         (Err(error), _) | (_, Err(error)) => return Err(error),
@@ -189,10 +203,7 @@ pub fn move_record(ctx: &mut Ctx, args: MoveArgs) -> Result<Outcome, SillokError
 
 /// `retract`.
 pub fn retract(ctx: &mut Ctx, args: RetractArgs) -> Result<Outcome, SillokError> {
-    let (record_id, reason) = match (
-        RecordId::parse(&args.id),
-        text::detail(args.reason, "reason"),
-    ) {
+    let (record_id, reason) = match (ctx.record_id(&args.id), text::detail(args.reason, "reason")) {
         (Ok(id), Ok(reason)) => (id, reason),
         (Err(error), _) | (_, Err(error)) => return Err(error),
     };
@@ -205,7 +216,7 @@ pub fn retract(ctx: &mut Ctx, args: RetractArgs) -> Result<Outcome, SillokError>
 
 /// `restore`.
 pub fn restore(ctx: &mut Ctx, id: &str) -> Result<Outcome, SillokError> {
-    match RecordId::parse(id) {
+    match ctx.record_id(id) {
         Ok(record_id) => append(ctx, "restore", EventKind::RecordRestored { record_id }),
         Err(error) => Err(error),
     }
@@ -245,7 +256,7 @@ fn written(ctx: &mut Ctx, command: &'static str, record: &Record) -> Outcome {
 }
 
 /// Writes may not set `retracted`; that goes through `retract` so a reason is kept.
-fn writable_status(status: StatusArg) -> Result<RecordStatus, SillokError> {
+pub fn writable_status(status: StatusArg) -> Result<RecordStatus, SillokError> {
     match status {
         StatusArg::Retracted => Err(SillokError::invalid(
             "invalid_status",

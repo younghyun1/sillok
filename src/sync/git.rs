@@ -11,6 +11,9 @@ use crate::domain::id::ArchiveId;
 use crate::error::SillokError;
 use crate::sync::config::SyncConfig;
 
+/// Name prefix of the temporary clone under the system temporary directory.
+pub const WORKTREE_PREFIX: &str = "sillok-sync-";
+
 /// A throwaway clone; deleted on drop.
 #[derive(Debug)]
 pub struct Worktree {
@@ -21,7 +24,7 @@ pub struct Worktree {
 impl Worktree {
     /// Creates the worktree and checks out the remote branch when it exists.
     pub fn prepare(config: &SyncConfig) -> Result<Self, SillokError> {
-        let root = std::env::temp_dir().join(format!("sillok-sync-{}", ArchiveId::new_v7()));
+        let root = std::env::temp_dir().join(format!("{WORKTREE_PREFIX}{}", ArchiveId::new_v7()));
         if let Err(error) = std::fs::create_dir_all(&root) {
             return Err(error.into());
         }

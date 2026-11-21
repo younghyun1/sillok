@@ -10,6 +10,7 @@ use crate::domain::time::Timestamp;
 use crate::domain::zone::Zone;
 use crate::error::SillokError;
 use crate::storage::path::default_store_path;
+use crate::storage::sqlite::lookup;
 use crate::storage::sqlite::open::{OpenMode, Store};
 use crate::storage::sqlite::writes::Stamp;
 
@@ -118,6 +119,38 @@ impl Ctx {
         }
     }
 
+    /// A record id argument: a full id, or a prefix that names one record.
+    /// A full id is not checked against the store; a prefix has to be.
+    pub fn record_id(&mut self, raw: &str) -> Result<RecordId, SillokError> {
+        let invalid = match RecordId::parse(raw) {
+            Ok(id) => return Ok(id),
+            Err(error) => error,
+        };
+        let digits = match lookup::prefix_digits(raw) {
+            Some(value) => value,
+            None => return Err(invalid),
+        };
+        match self.open() {
+            Ok(Some(store)) => store.resolve_prefix(raw, &digits),
+            Ok(None) => Err(SillokError::RecordNotFound(raw.to_string())),
+            Err(error) => Err(error),
+        }
+    }
+
+    /// An optional record id argument.
+    pub fn optional_record_id(
+        &mut self,
+        raw: Option<&str>,
+    ) -> Result<Option<RecordId>, SillokError> {
+        match raw {
+            Some(value) => match self.record_id(value) {
+                Ok(id) => Ok(Some(id)),
+                Err(error) => Err(error),
+            },
+            None => Ok(None),
+        }
+    }
+
     /// Local date named by `raw`, or the date of `--at`/now.
     pub fn date(&self, raw: Option<&str>) -> Result<NaiveDate, SillokError> {
         match raw {
@@ -138,16 +171,5 @@ impl Ctx {
             },
             None => Ok(None),
         }
-    }
-}
-
-/// Parses an optional record id argument.
-pub fn optional_id(raw: Option<&str>) -> Result<Option<RecordId>, SillokError> {
-    match raw {
-        Some(value) => match RecordId::parse(value) {
-            Ok(id) => Ok(Some(id)),
-            Err(error) => Err(error),
-        },
-        None => Ok(None),
     }
 }

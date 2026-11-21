@@ -50,7 +50,13 @@ impl KindArg {
 #[derive(Debug, Args)]
 pub struct NoteArgs {
     /// What was done or noticed.
-    pub text: String,
+    #[arg(required_unless_present = "stdin")]
+    pub text: Option<String>,
+    /// Record one task per JSON line on stdin: `{"text": "...", "parent":
+    /// "<id>", "tags": ["a"], "status": "active", "purpose": "..."}`. Only
+    /// `text` is required; the flags here are the defaults. All or nothing.
+    #[arg(long, conflicts_with = "text")]
+    pub stdin: bool,
     /// Objective or task this belongs under.
     #[arg(long)]
     pub parent: Option<String>,
@@ -110,7 +116,8 @@ pub struct ObjectiveListArgs {
     /// Include completed objectives.
     #[arg(long)]
     pub all: bool,
-    #[arg(long, default_value_t = 50)]
+    /// Newest objectives kept.
+    #[arg(long, default_value_t = 20)]
     pub limit: usize,
 }
 

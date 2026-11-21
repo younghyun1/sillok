@@ -56,6 +56,24 @@ fn updated_at(conn: &Connection, id: RecordId) -> Result<Option<Timestamp>, Sill
 impl Store {
     /// Appends one event and returns the record it produced or changed.
     pub fn append(&mut self, stamp: Stamp, kind: EventKind) -> Result<Record, SillokError> {
+        match self.append_all(stamp, vec![kind]) {
+            Ok(mut records) => match records.pop() {
+                Some(record) => Ok(record),
+                None => Err(SillokError::operation(
+                    "invalid_event",
+                    "append produced no record",
+                )),
+            },
+            Err(error) => Err(error),
+        }
+    }
+
+    /// Appends several events in one transaction: all are stored or none.
+    pub fn append_all(
+        &mut self,
+        stamp: Stamp,
+        kinds: Vec<EventKind>,
+    ) -> Result<Vec<Record>, SillokError> {
         let tx = match self
             .conn
             .transaction_with_behavior(TransactionBehavior::Immediate)
@@ -63,44 +81,56 @@ impl Store {
             Ok(value) => value,
             Err(error) => return Err(error.into()),
         };
-        // Replay orders writes by recorded_at, so it is taken only once this
-        // process holds the write lock and is kept above the target record's
-        // updated_at. Otherwise a writer that waited on the lock, or a synced
-        // event from a machine whose clock runs ahead, would make the live
-        // projection disagree with a replay of the same events.
-        let floor = match kind.created_kind() {
-            Some(_) => None,
-            None => match kind.record_id() {
-                Some(id) => match updated_at(&tx, id) {
-                    Ok(value) => value,
-                    Err(error) => return Err(error),
-                },
-                None => None,
-            },
-        };
-        let recorded_at = next_recorded_at(stamp.recorded_at, floor);
-        let event_at = match stamp.backfilled {
-            true => stamp.event_at,
-            false => recorded_at,
-        };
-        let event = match Event::create(event_at, recorded_at, stamp.actor, stamp.context, kind) {
-            Ok(value) => value,
-            Err(error) => return Err(error),
-        };
-        let record = match next_state(&tx, &event) {
-            Ok(value) => value,
-            Err(error) => return Err(error),
-        };
-        if let Err(error) = events::insert(&tx, &event) {
-            return Err(error);
-        }
-        if let Err(error) = records::upsert(&tx, &record) {
-            return Err(error);
+        let mut records = Vec::with_capacity(kinds.len());
+        for kind in kinds {
+            match append_in(&tx, stamp.clone(), kind) {
+                Ok(record) => records.push(record),
+                Err(error) => return Err(error),
+            }
         }
         match tx.commit() {
-            Ok(()) => Ok(record),
+            Ok(()) => Ok(records),
             Err(error) => Err(error.into()),
         }
+    }
+}
+
+/// Validates and stores one event inside the caller's write transaction.
+fn append_in(conn: &Connection, stamp: Stamp, kind: EventKind) -> Result<Record, SillokError> {
+    // Replay orders writes by recorded_at, so it is taken only once this
+    // process holds the write lock and is kept above the target record's
+    // updated_at. Otherwise a writer that waited on the lock, or a synced
+    // event from a machine whose clock runs ahead, would make the live
+    // projection disagree with a replay of the same events.
+    let floor = match kind.created_kind() {
+        Some(_) => None,
+        None => match kind.record_id() {
+            Some(id) => match updated_at(conn, id) {
+                Ok(value) => value,
+                Err(error) => return Err(error),
+            },
+            None => None,
+        },
+    };
+    let recorded_at = next_recorded_at(stamp.recorded_at, floor);
+    let event_at = match stamp.backfilled {
+        true => stamp.event_at,
+        false => recorded_at,
+    };
+    let event = match Event::create(event_at, recorded_at, stamp.actor, stamp.context, kind) {
+        Ok(value) => value,
+        Err(error) => return Err(error),
+    };
+    let record = match next_state(conn, &event) {
+        Ok(value) => value,
+        Err(error) => return Err(error),
+    };
+    if let Err(error) = events::insert(conn, &event) {
+        return Err(error);
+    }
+    match records::upsert(conn, &record) {
+        Ok(()) => Ok(record),
+        Err(error) => Err(error),
     }
 }
 

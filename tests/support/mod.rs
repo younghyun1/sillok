@@ -110,6 +110,17 @@ pub fn run_with(
     args: &[&str],
     envs: &[(&str, &str)],
 ) -> Result<Output, Box<dyn std::error::Error>> {
+    run_input(store, cwd, args, envs, None)
+}
+
+/// `run_with`, feeding `input` to stdin when given.
+pub fn run_input(
+    store: &Path,
+    cwd: &Path,
+    args: &[&str],
+    envs: &[(&str, &str)],
+    input: Option<&str>,
+) -> Result<Output, Box<dyn std::error::Error>> {
     let mut command = match std::process::Command::cargo_bin("sillok") {
         Ok(value) => value,
         Err(error) => return Err(Box::new(error)),
@@ -137,8 +148,23 @@ pub fn run_with(
         .env_remove("SILLOK_SESSION")
         .env_remove("SILLOK_ACTOR")
         .args(args)
-        .envs(envs.iter().copied());
-    match command.output() {
+        .envs(envs.iter().copied())
+        .stdin(match input {
+            Some(_) => std::process::Stdio::piped(),
+            None => std::process::Stdio::null(),
+        })
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+    let mut child = match command.spawn() {
+        Ok(value) => value,
+        Err(error) => return Err(Box::new(error)),
+    };
+    if let (Some(text), Some(mut stdin)) = (input, child.stdin.take())
+        && let Err(error) = std::io::Write::write_all(&mut stdin, text.as_bytes())
+    {
+        return Err(Box::new(error));
+    }
+    match child.wait_with_output() {
         Ok(value) => Ok(value),
         Err(error) => Err(Box::new(error)),
     }

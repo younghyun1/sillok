@@ -1,7 +1,9 @@
 pub mod admin;
+pub mod batch;
 pub mod ctx;
 pub mod dispatch;
 pub mod import;
+pub mod prune;
 pub mod read;
 pub mod record;
 pub mod skill;

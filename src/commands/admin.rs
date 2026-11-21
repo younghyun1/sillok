@@ -9,6 +9,7 @@ use crate::cli::args::read::{ExportArgs, ExportFormat};
 use crate::cli::output::outcome::Outcome;
 use crate::cli::output::views;
 use crate::commands::ctx::Ctx;
+use crate::commands::prune;
 use crate::domain::id::ArchiveId;
 use crate::error::SillokError;
 use crate::skill::content::GUIDE;
@@ -39,14 +40,36 @@ pub fn init(ctx: &mut Ctx) -> Result<Outcome, SillokError> {
 }
 
 /// `doctor`.
-pub fn doctor(ctx: &mut Ctx, repair: bool) -> Result<Outcome, SillokError> {
+pub fn doctor(ctx: &mut Ctx, repair: bool, prune: bool) -> Result<Outcome, SillokError> {
+    // Pruning needs no store, and runs first so the report shows what is left.
+    let pruned = match prune {
+        true => {
+            let (done, mut warnings) = prune::prune(&ctx.store_path);
+            ctx.warnings.append(&mut warnings);
+            Some(done)
+        }
+        false => None,
+    };
+    let backups = prune::backups(&ctx.store_path);
+    let backup_bytes: u64 = backups.iter().map(|(_, bytes)| *bytes).sum();
+    let leftovers = json!({
+        "backups": backups.len(),
+        "backup_bytes": backup_bytes,
+        "sync_dirs": prune::stale_sync_dirs().len(),
+        "pruned": pruned.map(|done| json!({
+            "backups": done.backups,
+            "bytes": done.bytes,
+            "sync_dirs": done.sync_dirs,
+        })),
+    });
     let mut store = match ctx.open() {
         Ok(Some(value)) => value,
         Ok(None) => {
             return Ok(Outcome::read(
                 "doctor",
-                json!({ "valid": true, "missing": true }),
-            ));
+                json!({ "valid": true, "missing": true, "leftovers": leftovers }),
+            )
+            .with_warnings(std::mem::take(&mut ctx.warnings)));
         }
         Err(error) => return Err(error),
     };
@@ -62,11 +85,17 @@ pub fn doctor(ctx: &mut Ctx, repair: bool) -> Result<Outcome, SillokError> {
         Err(error) => return Err(error),
     };
     let human = format!(
-        "{}: {} events, {} records, integrity {}{}",
+        "{}: {} events, {} records, integrity {}{}{}",
         if report.valid() { "valid" } else { "INVALID" },
         report.events,
         report.records,
         report.integrity,
+        match backups.len() {
+            0 => String::new(),
+            count => format!(
+                ", {count} backup files using {backup_bytes} bytes (`sillok doctor --prune` removes them)"
+            ),
+        },
         if report.mismatch_count > 0 {
             format!(
                 ", {} mismatches (run `sillok doctor --repair`)",
@@ -88,6 +117,7 @@ pub fn doctor(ctx: &mut Ctx, repair: bool) -> Result<Outcome, SillokError> {
             "mismatches": report.mismatches,
             "replay_notes": report.warnings,
             "repaired": repaired,
+            "leftovers": leftovers,
         }),
     )
     .with_human(human)

@@ -31,6 +31,9 @@ pub struct DoctorArgs {
     /// Rebuild the projection from events.
     #[arg(long)]
     pub repair: bool,
+    /// Delete the backup files beside the store and leftover sync directories.
+    #[arg(long)]
+    pub prune: bool,
 }
 
 /// `reset`.
