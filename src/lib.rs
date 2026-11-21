@@ -17,6 +17,8 @@ pub mod domain;
 #[doc(hidden)]
 pub mod error;
 #[doc(hidden)]
+pub mod hook;
+#[doc(hidden)]
 pub mod legacy;
 #[doc(hidden)]
 pub mod logging;

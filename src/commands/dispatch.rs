@@ -4,7 +4,7 @@ use crate::cli::args::record::ObjectiveCommand;
 use crate::cli::args::root::{Cli, Command};
 use crate::cli::output::outcome::Outcome;
 use crate::commands::ctx::Ctx;
-use crate::commands::{admin, import, read, record, skill, status};
+use crate::commands::{admin, hook, import, read, record, skill, status};
 use crate::error::SillokError;
 use crate::sync::service;
 
@@ -14,6 +14,7 @@ pub fn execute(cli: Cli) -> Result<Outcome, SillokError> {
     let command = match cli.command {
         Command::Guide => return Ok(admin::guide()),
         Command::Skill(args) => return skill::dispatch(args.command),
+        Command::Hook => return Ok(hook::run(cli.store, cli.tz)),
         other => other,
     };
     let mut ctx = match Ctx::new(cli.store, cli.tz, cli.at, cli.full) {
@@ -47,5 +48,6 @@ pub fn execute(cli: Cli) -> Result<Outcome, SillokError> {
         Command::Migrate(args) => import::migrate(&mut ctx, args),
         Command::Guide => Ok(admin::guide()),
         Command::Skill(args) => skill::dispatch(args.command),
+        Command::Hook => Ok(Outcome::streamed("hook", serde_json::Value::Null)),
     }
 }

@@ -9,6 +9,7 @@ use std::path::Path;
 
 use crate::error::SillokError;
 use crate::skill::content::{self, VERSION, Version};
+use crate::skill::file;
 use crate::skill::roots::{Homes, Target};
 
 /// Disables the refresh done by `sillok status` when set to `0`, `false`, or `off`.
@@ -101,7 +102,7 @@ pub fn install(path: &Path) -> Result<Action, SillokError> {
         Ok(None) => Action::Installed,
         Err(error) => return Err(error),
     };
-    match write_atomic(path, &rendered) {
+    match file::write_atomic(path, &rendered) {
         Ok(()) => Ok(action),
         Err(error) => Err(error),
     }
@@ -163,41 +164,6 @@ fn read(path: &Path) -> Result<Option<String>, SillokError> {
         Ok(bytes) => Ok(Some(String::from_utf8_lossy(&bytes).into_owned())),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
         Err(error) => Err(error.into()),
-    }
-}
-
-/// Writes through a sibling temporary file and a rename, so a reader never
-/// sees a half-written skill and a crash leaves the old file intact.
-fn write_atomic(path: &Path, text: &str) -> Result<(), SillokError> {
-    let dir = match path.parent() {
-        Some(value) => value,
-        None => {
-            return Err(SillokError::invalid(
-                "skill_path_error",
-                format!("skill path `{}` has no parent", path.display()),
-            ));
-        }
-    };
-    if let Err(error) = std::fs::create_dir_all(dir) {
-        return Err(error.into());
-    }
-    let temp = dir.join(format!(
-        ".{}.{}.tmp",
-        content::SKILL_FILE,
-        std::process::id()
-    ));
-    if let Err(error) = std::fs::write(&temp, text) {
-        return Err(error.into());
-    }
-    match std::fs::rename(&temp, path) {
-        Ok(()) => Ok(()),
-        Err(error) => {
-            // Best effort: the rename failure is the error worth reporting.
-            match std::fs::remove_file(&temp) {
-                Ok(()) | Err(_) => {}
-            }
-            Err(error.into())
-        }
     }
 }
 

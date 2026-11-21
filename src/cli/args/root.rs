@@ -93,6 +93,8 @@ pub enum Command {
     Guide,
     /// Install, inspect, or print the agent skill built into this binary.
     Skill(SkillArgs),
+    /// Handle one Claude Code or Codex hook event read from stdin.
+    Hook,
     /// 0.10 spelling of `import`; kept so old instructions keep working.
     #[command(hide = true)]
     Migrate(MigrateArgs),
@@ -121,6 +123,7 @@ impl Command {
             Self::Reset(_) => "reset",
             Self::Guide => "guide",
             Self::Skill(_) => "skill",
+            Self::Hook => "hook",
             Self::Migrate(_) => "migrate",
         }
     }

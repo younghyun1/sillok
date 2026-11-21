@@ -42,6 +42,8 @@ impl Tool {
 pub struct Target {
     /// Tool label, or `dir` for an explicit skill root.
     pub tool: &'static str,
+    /// The tool, when the target is one's user-level root.
+    pub kind: Option<Tool>,
     /// Path of the `SKILL.md` to write.
     pub path: PathBuf,
     /// A second copy the same tool would also discover.
@@ -88,11 +90,20 @@ impl Homes {
         }
     }
 
+    /// The file a tool reads its hooks from.
+    pub fn hook_config(&self, tool: Tool) -> PathBuf {
+        match tool {
+            Tool::Claude => self.claude.join("settings.json"),
+            Tool::Codex => self.codex.join("hooks.json"),
+        }
+    }
+
     /// The single install target of a tool.
     pub fn target(&self, tool: Tool) -> Target {
         match tool {
             Tool::Claude => Target {
                 tool: tool.label(),
+                kind: Some(tool),
                 path: skill_file(&self.claude.join("skills")),
                 duplicate: None,
             },
@@ -113,6 +124,7 @@ impl Homes {
                 };
                 Target {
                     tool: tool.label(),
+                    kind: Some(tool),
                     path,
                     duplicate,
                 }
@@ -134,6 +146,7 @@ impl Homes {
 pub fn dir_target(root: &Path) -> Target {
     Target {
         tool: "dir",
+        kind: None,
         path: skill_file(root),
         duplicate: None,
     }

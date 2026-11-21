@@ -52,4 +52,9 @@ pub struct SkillInstallArgs {
     /// Skill root to install into, such as a project's `.claude/skills`; repeatable.
     #[arg(long = "dir", value_name = "SKILL_ROOT")]
     pub dirs: Vec<PathBuf>,
+    /// Also register `sillok hook` with each tool: status as context when a
+    /// session starts, and a reminder when a turn changed something without
+    /// recording it. Replaces a standalone `sillok-reminder` registration.
+    #[arg(long)]
+    pub hooks: bool,
 }

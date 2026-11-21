@@ -8,8 +8,9 @@ use crate::cli::args::skill::{SkillCommand, SkillInstallArgs};
 use crate::cli::output::outcome::Outcome;
 use crate::error::SillokError;
 use crate::skill::content::{self, VERSION, Version};
+use crate::skill::hooks;
 use crate::skill::install;
-use crate::skill::roots::{Homes, Target, dir_target};
+use crate::skill::roots::{Homes, Target, Tool, dir_target};
 
 /// Dispatches `skill`.
 pub fn dispatch(command: SkillCommand) -> Result<Outcome, SillokError> {
@@ -27,8 +28,9 @@ pub fn dispatch(command: SkillCommand) -> Result<Outcome, SillokError> {
 fn run_install(args: SkillInstallArgs) -> Result<Outcome, SillokError> {
     let explicit = !args.tools.is_empty() || !args.dirs.is_empty();
     let mut targets: Vec<Target> = Vec::new();
+    let homes = Homes::from_env();
     if !explicit || !args.tools.is_empty() {
-        let homes = match Homes::from_env() {
+        let homes = match &homes {
             Some(value) => value,
             None => {
                 return Err(SillokError::invalid(
@@ -75,11 +77,32 @@ fn run_install(args: SkillInstallArgs) -> Result<Outcome, SillokError> {
             target.path.display(),
             target.tool
         ));
-        rows.push(json!({
+        let mut row = json!({
             "tool": target.tool,
             "path": target.path.display().to_string(),
             "action": action.label(),
-        }));
+        });
+        if let (true, Some(tool), Some(homes)) = (args.hooks, target.kind, &homes) {
+            let config = homes.hook_config(tool);
+            let done = match hooks::register(&config, tool) {
+                Ok(value) => value,
+                Err(error) => return Err(error),
+            };
+            lines.push(format!("hooks {} {}", done.label(), config.display()));
+            if let Value::Object(map) = &mut row {
+                map.insert(
+                    "hooks".to_string(),
+                    json!({ "path": config.display().to_string(), "action": done.label() }),
+                );
+            }
+            if tool == Tool::Codex && done != hooks::Action::Unchanged {
+                warnings.push(
+                    "Codex skips new or changed hooks until they are trusted: open `/hooks` in Codex and trust the sillok entries"
+                        .to_string(),
+                );
+            }
+        }
+        rows.push(row);
         duplicate_warning(target, &mut warnings);
     }
     Ok(
@@ -91,8 +114,9 @@ fn run_install(args: SkillInstallArgs) -> Result<Outcome, SillokError> {
 
 /// `skill status`: the copy each tool on this machine would load.
 fn status() -> Result<Outcome, SillokError> {
-    let targets = match Homes::from_env() {
-        Some(homes) => homes.detected(),
+    let homes = Homes::from_env();
+    let targets = match &homes {
+        Some(value) => value.detected(),
         None => Vec::new(),
     };
     let mut rows: Vec<Value> = Vec::with_capacity(targets.len());
@@ -110,6 +134,15 @@ fn status() -> Result<Outcome, SillokError> {
         });
         if let (Some(version), Value::Object(map)) = (stamped, &mut row) {
             map.insert("installed_version".to_string(), json!(dotted(version)));
+        }
+        if let (Some(tool), Some(value), Value::Object(map)) = (target.kind, &homes, &mut row) {
+            // An unreadable configuration reads as not registered here;
+            // `skill install --hooks` is where it is reported.
+            let registered = match hooks::registered(&value.hook_config(tool), tool) {
+                Ok(found) => found,
+                Err(_) => false,
+            };
+            map.insert("hooks".to_string(), json!(registered));
         }
         lines.push(format!(
             "{} {} ({})",
