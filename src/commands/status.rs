@@ -17,7 +17,7 @@ use crate::sync::auto;
 
 /// `status`: what an agent needs to resume work in this repository.
 pub fn status(ctx: &mut Ctx, args: StatusArgs) -> Result<Outcome, SillokError> {
-    let scope = match args.all {
+    let mut scope = match args.all {
         true => None,
         false => capture::current_scope(),
     };
@@ -43,6 +43,16 @@ pub fn status(ctx: &mut Ctx, args: StatusArgs) -> Result<Outcome, SillokError> {
         }
         Err(error) => return Err(error),
     };
+    // Other machines and clones may reach the same repository through a
+    // different URL, so match every stored spelling of this remote.
+    if let Some(value) = &mut scope
+        && let Some(url) = &value.remote
+    {
+        value.remotes = match store.remote_spellings(url) {
+            Ok(found) => found,
+            Err(error) => return Err(error),
+        };
+    }
     let recent = match store.recent(scope.as_ref(), args.limit) {
         Ok(value) => value,
         Err(error) => return Err(error),

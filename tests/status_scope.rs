@@ -109,9 +109,11 @@ fn clones_of_one_remote_share_status_and_others_do_not() -> TestResult {
     let first = sandbox.path("first");
     let second = sandbox.path("second");
     let other = sandbox.path("other");
+    let over_ssh = sandbox.path("over-ssh");
     for (path, url) in [
         (&first, "https://user:secret@example.com/team/project.git"),
         (&second, "https://example.com/team/project.git"),
+        (&over_ssh, "git@example.com:team/project"),
         (&other, "https://example.com/team/unrelated.git"),
     ] {
         if let Err(error) = repository(path, Some(url)) {
@@ -139,6 +141,15 @@ fn clones_of_one_remote_share_status_and_others_do_not() -> TestResult {
     // Credentials in a remote URL never reach output.
     assert_eq!(same["remote"], "https://example.com/team/project.git");
     assert!(strings(&different, "/recent", "/text").is_empty());
+    // Another spelling of the same remote is the same repository.
+    let spelled = match json_in(&sandbox, &over_ssh, &["status"]) {
+        Ok(value) => value,
+        Err(error) => return Err(error),
+    };
+    assert_eq!(
+        strings(&spelled, "/recent", "/text"),
+        ["Recorded in the first clone"]
+    );
     Ok(())
 }
 

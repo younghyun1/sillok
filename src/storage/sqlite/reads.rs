@@ -116,11 +116,10 @@ impl Store {
             );
         }
         if let Some(scope) = &filter.scope {
-            let (root, main, remote) = scope_params(scope);
-            clauses.push(scope_clause(args.len() + 1));
-            args.push(Box::new(root.to_string()));
-            args.push(Box::new(main.to_string()));
-            args.push(Box::new(remote.map(str::to_string)));
+            clauses.push(scope_clause(args.len() + 1, scope));
+            for value in scope_params(scope) {
+                args.push(Box::new(value));
+            }
         }
         let limit = match i64::try_from(filter.limit) {
             Ok(value) => value,

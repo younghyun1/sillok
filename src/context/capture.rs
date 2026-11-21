@@ -99,11 +99,13 @@ pub fn current_scope() -> Option<Scope> {
             },
             root,
             remote,
+            remotes: Vec::new(),
         },
         None => Scope {
             root: cwd.display().to_string(),
             main_root: None,
             remote: None,
+            remotes: Vec::new(),
         },
     })
 }

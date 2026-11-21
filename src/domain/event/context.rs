@@ -43,6 +43,69 @@ pub struct Scope {
     pub main_root: Option<String>,
     /// `origin` URL, sanitized like the one stored with each event.
     pub remote: Option<String>,
+    /// Every stored spelling of that remote (SSH, HTTPS, with or without
+    /// `.git`), filled in from the store before querying.
+    pub remotes: Vec<String>,
+}
+
+/// Canonical identity of a Git remote: `host/path`, with the scheme, login,
+/// port, trailing slash, and `.git` suffix removed and the host lowercased.
+///
+/// Two machines often reach one repository through different URLs
+/// (`git@github.com:o/r.git` and `https://github.com/o/r`); both map to
+/// `github.com/o/r`. A local path maps to itself.
+pub fn remote_key(raw: &str) -> String {
+    let trimmed = raw.trim();
+    let (host, path) = match trimmed.find("://") {
+        Some(index) => {
+            let rest = &trimmed[index + 3..];
+            if trimmed[..index].eq_ignore_ascii_case("file") {
+                return clean_path(rest).to_string();
+            }
+            let (authority, path) = match rest.find('/') {
+                Some(slash) => (&rest[..slash], &rest[slash + 1..]),
+                None => (rest, ""),
+            };
+            let host = match authority.rsplit('@').next() {
+                Some(value) => value,
+                None => authority,
+            };
+            // Drop a port; a bracketed IPv6 literal keeps its colons.
+            let host = match host.starts_with('[') {
+                true => host,
+                false => match host.split(':').next() {
+                    Some(value) => value,
+                    None => host,
+                },
+            };
+            (host, path)
+        }
+        // SCP style, `[user@]host:path`. A single letter before the colon is
+        // a Windows drive, and a slash before it means a plain path.
+        None => match trimmed.split_once(':') {
+            Some((before, after)) if before.len() > 1 && !before.contains('/') => {
+                let host = match before.rsplit('@').next() {
+                    Some(value) => value,
+                    None => before,
+                };
+                (host, after)
+            }
+            Some(_) | None => return clean_path(trimmed).to_string(),
+        },
+    };
+    format!(
+        "{}/{}",
+        host.to_ascii_lowercase(),
+        clean_path(path).trim_start_matches('/')
+    )
+}
+
+fn clean_path(path: &str) -> &str {
+    let path = path.trim_end_matches('/');
+    match path.strip_suffix(".git") {
+        Some(stripped) => stripped.trim_end_matches('/'),
+        None => path,
+    }
 }
 
 /// Removes `user[:password]@` from URL-style Git remotes.
@@ -69,7 +132,37 @@ pub fn sanitize_remote(raw: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::sanitize_remote;
+    use super::{remote_key, sanitize_remote};
+
+    #[test]
+    fn spellings_of_one_remote_share_a_key() {
+        for url in [
+            "git@github.com:Owner/Repo.git",
+            "ssh://git@github.com/Owner/Repo.git",
+            "ssh://git@GitHub.com:22/Owner/Repo",
+            "https://github.com/Owner/Repo.git/",
+            "https://github.com/Owner/Repo",
+            "git://github.com/Owner/Repo.git",
+        ] {
+            assert_eq!(remote_key(url), "github.com/Owner/Repo", "{url}");
+        }
+        assert_ne!(
+            remote_key("https://github.com/Owner/Other"),
+            "github.com/Owner/Repo"
+        );
+        assert_ne!(
+            remote_key("https://gitlab.com/Owner/Repo"),
+            "github.com/Owner/Repo"
+        );
+    }
+
+    #[test]
+    fn local_remotes_keep_their_path() {
+        assert_eq!(remote_key("/srv/git/repo.git"), "/srv/git/repo");
+        assert_eq!(remote_key("file:///srv/git/repo.git"), "/srv/git/repo");
+        assert_eq!(remote_key("C:/git/repo.git"), "C:/git/repo");
+        assert_eq!(remote_key("../repo"), "../repo");
+    }
 
     #[test]
     fn strips_https_credentials() {
