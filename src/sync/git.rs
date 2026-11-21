@@ -29,6 +29,7 @@ impl Worktree {
             root,
             config: config.clone(),
         };
+        crate::logging::ensure();
         let branch = config.branch.as_str();
         let remote_ref = format!("refs/remotes/origin/{branch}");
         let steps: [&[&str]; 3] = [
@@ -41,22 +42,46 @@ impl Worktree {
                 return Err(error);
             }
         }
-        let heads = match tree.git(&["ls-remote", "--heads", "origin", branch]) {
-            Ok(value) => value,
+        // Fetch first: when the branch exists, which is every sync after the
+        // first, that is the only round trip needed before the push. Asking
+        // `ls-remote` whether it exists beforehand doubled the connections.
+        let refspec = format!("+refs/heads/{branch}:{remote_ref}");
+        let fetched = match run(
+            &tree.root,
+            &["fetch", "-q", "--depth", "1", "origin", refspec.as_str()],
+        ) {
+            Ok(output) if output.status.success() => true,
+            Ok(output) => match tree.branch_is_missing(branch, &failure(&output)) {
+                Ok(()) => false,
+                Err(error) => return Err(error),
+            },
             Err(error) => return Err(error),
         };
-        let checkout = if heads.trim().is_empty() {
-            tree.git(&["checkout", "-q", "-B", branch])
-        } else {
-            let refspec = format!("+refs/heads/{branch}:{remote_ref}");
-            match tree.git(&["fetch", "-q", "--depth", "1", "origin", refspec.as_str()]) {
-                Ok(_) => tree.git(&["checkout", "-q", "-B", branch, remote_ref.as_str()]),
-                Err(error) => Err(error),
-            }
+        let checkout = match fetched {
+            true => tree.git(&["checkout", "-q", "-B", branch, remote_ref.as_str()]),
+            false => tree.git(&["checkout", "-q", "-B", branch]),
         };
         match checkout {
             Ok(_) => Ok(tree),
             Err(error) => Err(error),
+        }
+    }
+
+    /// Decides whether a failed fetch only means the branch does not exist
+    /// yet (an empty remote or a first sync), returning the fetch failure
+    /// otherwise. Git's own wording settles the common case; anything else
+    /// is confirmed with `ls-remote`, so an unfamiliar message costs one
+    /// extra round trip instead of a wrong answer.
+    fn branch_is_missing(&self, branch: &str, fetch_failure: &str) -> Result<(), SillokError> {
+        if is_missing_ref(fetch_failure) {
+            return Ok(());
+        }
+        match self.git(&["ls-remote", "--heads", "origin", branch]) {
+            Ok(heads) if heads.trim().is_empty() => Ok(()),
+            Ok(_) | Err(_) => Err(SillokError::sync(
+                "sync_git_error",
+                format!("git fetch failed: {fetch_failure}"),
+            )),
         }
     }
 
@@ -166,7 +191,9 @@ fn run(dir: &Path, args: &[&str]) -> Result<Output, SillokError> {
         .args(args)
         .current_dir(dir)
         .stdin(Stdio::null())
-        .env("GIT_TERMINAL_PROMPT", "0");
+        .env("GIT_TERMINAL_PROMPT", "0")
+        // Failures are classified by Git's English messages.
+        .env("LC_ALL", "C");
     // Keep the user's SSH command if they set one; otherwise forbid prompts.
     if std::env::var_os("GIT_SSH_COMMAND").is_none() {
         command.env("GIT_SSH_COMMAND", "ssh -o BatchMode=yes");
@@ -193,6 +220,11 @@ fn is_rejection(stderr: &str) -> bool {
     .any(|marker| stderr.contains(marker))
 }
 
+/// Whether a fetch failed because the remote has no such branch.
+fn is_missing_ref(stderr: &str) -> bool {
+    stderr.contains("couldn't find remote ref")
+}
+
 fn failure(output: &Output) -> String {
     let stderr = String::from_utf8_lossy(&output.stderr);
     stderr
@@ -205,7 +237,17 @@ fn failure(output: &Output) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::is_rejection;
+    use super::{is_missing_ref, is_rejection};
+
+    #[test]
+    fn a_missing_branch_is_not_a_fetch_failure() {
+        assert!(is_missing_ref(
+            "fatal: couldn't find remote ref refs/heads/main"
+        ));
+        assert!(!is_missing_ref(
+            "fatal: unable to access 'https://example.com/a.git/': Could not resolve host"
+        ));
+    }
 
     #[test]
     fn only_moved_remotes_are_rejections() {
