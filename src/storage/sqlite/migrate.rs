@@ -51,6 +51,7 @@ impl MigrationReport {
 /// Migrates `path` if it still holds a v2 store; `None` if another process
 /// finished first.
 pub fn migrate_v2(path: &Path) -> Result<Option<MigrationReport>, SillokError> {
+    crate::logging::ensure();
     let lock = match FileLock::acquire(&with_suffix(path, ".migrate.lock"), MIGRATION_WAIT) {
         Ok(value) => value,
         Err(error) => return Err(error),
