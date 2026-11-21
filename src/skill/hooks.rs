@@ -15,9 +15,11 @@ use crate::error::SillokError;
 use crate::skill::file;
 use crate::skill::roots::Tool;
 
-/// Handler command. The guard makes it a no-op on a machine that shares the
-/// configuration but has no `sillok` on `PATH`.
-pub const COMMAND: &str = "command -v sillok >/dev/null 2>&1 || exit 0; exec sillok hook";
+/// Handler command. It is a no-op on a machine that shares the configuration
+/// but has no `sillok` on `PATH`, and it always exits successfully: a binary
+/// from before 1.2 rejects `hook` with exit code 2, which a host would read
+/// as a blocking error on every tool call.
+pub const COMMAND: &str = "command -v sillok >/dev/null 2>&1 || exit 0; sillok hook || exit 0";
 
 /// Substrings that mark a handler as Sillok's: its own command, and the
 /// standalone reminder it supersedes.

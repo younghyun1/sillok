@@ -8,7 +8,7 @@ Sillok is the user's chronicle of agent work: objectives, the tasks done under t
 sillok status    # open objectives and recent work for this repository, across its worktrees and clones
 ```
 
-Resume the open objective that fits the task (`sillok show <id>` gives its history), or start one. Writes print only the affected id:
+Skip the command when the session already opened with a Sillok status block; the session hook ran it. Resume the open objective that fits the task (`sillok show <id>` gives its history), or start one. Writes print only the affected id:
 
 ```bash
 obj=$(sillok objective add "Ship the storage refactor" --tags rust)
@@ -25,6 +25,12 @@ sillok retract <id> --reason "Recorded under the wrong objective"   # hides it; 
 sillok objective complete "$obj" --note "What shipped and what remains"
 ```
 
+Several tasks at once go through stdin, one JSON object per line, all or nothing; the flags are defaults for lines that omit a field:
+
+```bash
+printf '%s\n' '{"text":"Fixed the parser"}' '{"text":"Benchmarks pending","status":"active"}' | sillok note --stdin --parent "$obj"
+```
+
 - Record each unit of work when it finishes, and before ending any turn that changed files or systems; do not batch across turns. If a hook sends the turn back asking for a record, write it, or finish when nothing substantive happened.
 - Record corrections: when you revise an earlier claim or the user says you were wrong, add a note tagged `correction` under the affected objective, and fix the wrong record with `amend` or `retract`.
 - Close what you open: complete an objective when its scope is done, and move `active` tasks to `completed` or `blocked`. Objectives span days; never re-create one per day.
@@ -36,7 +42,7 @@ sillok objective complete "$obj" --note "What shipped and what remains"
 sillok day [--date YYYY-MM-DD]   # every record touched that day, as a tree with per-record activity
 sillok show <id>                 # record, children, full event history
 sillok tree <id>                 # record and its descendants
-sillok objective list            # open objectives everywhere; --all adds completed ones
+sillok objective list            # newest open objectives everywhere; --all adds completed, --limit N
 sillok query --text sync --open --limit 20   # also --since, --from/--to, --date, --tag, --kind, --status, --context
 ```
 
@@ -45,6 +51,7 @@ Reads print one line of compact JSON without empty fields. `--full` adds the wor
 ## Rules
 
 - Errors are JSON on stderr, `{"error":"code","message":"..."}`, with exit code 1, or 2 for usage errors. Branch on `error`, not the message.
+- An id can be shortened to a prefix of at least eight hex digits that names one record; `ambiguous_id` means use more.
 - `retracted` is set only by `retract`; `note` and `amend` reject it.
 - Backfill with `--at 2026-09-29T16:45:00`; naive times use `--tz` or `SILLOK_TZ`, else the system zone.
 - `SILLOK_SESSION` labels events with the agent session and `SILLOK_ACTOR` names the writer; set them when the harness exposes them.

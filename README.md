@@ -6,7 +6,7 @@ Sillok is a structured chronicle of agent work: objectives, the tasks done under
 
 ```bash
 cargo install sillok      # or, from a checkout: cargo install --path .
-sillok skill install      # install the agent skill for Claude Code and Codex
+sillok skill install --hooks   # install the agent skill and hooks for Claude Code and Codex
 sillok guide              # the same workflow, printed
 ```
 
@@ -25,6 +25,13 @@ The agent workflow ships inside the binary, so it always matches the installed v
 | Anything else | `sillok skill install --dir <skill root>`, for example a project's `.claude/skills` |
 
 Install is idempotent: it replaces an existing copy, writes nothing when the copy is current, and keeps one copy per tool, naming a second one it finds instead of updating both. After an upgrade, `sillok status` refreshes user-level copies that Sillok wrote and nobody edited; a hand-edited copy is left alone and reported. `SILLOK_SKILL_AUTOUPDATE=0` turns the refresh off, and `sillok skill status` shows what is installed.
+
+`--hooks` also registers `sillok hook` with each tool, in `~/.claude/settings.json` and `~/.codex/hooks.json`:
+
+- **Session start**: the repository's status arrives as session context, so resuming costs no tool call, and on Claude Code `SILLOK_SESSION` is exported for the session so events carry its label.
+- **End of turn**: a turn that changed files or systems without writing to Sillok is sent back once with a reminder; a turn that recorded, or changed nothing, ends normally.
+
+Registration leaves every other setting alone, keeps one Sillok handler per event however often it runs, and replaces entries for the standalone `sillok-reminder` binary this supersedes. A hook failure is logged to stderr and never blocks a session. Codex runs new hooks only after you trust them under `/hooks`.
 
 For tools without skills, add this to a repository's `AGENTS.md` or `CLAUDE.md`:
 
@@ -45,11 +52,11 @@ Never run `sillok reset --yes` unless the user explicitly asks to erase the chro
 
 The CLI is shaped for that caller:
 
-- **Writes print the affected id** and nothing else, so `id=$(sillok note ...)` works.
+- **Writes print the affected id** and nothing else, so `id=$(sillok note ...)` works. Ids can be abbreviated to a unique prefix of eight or more hex digits, and `note --stdin` records several tasks from JSON lines in one transaction.
 - **Reads print compact JSON**: empty fields are omitted and the work context appears only with `--full`. `--json` adds the `{ok, command, generated_at, data, warnings}` envelope and `--human` prints text.
 - **Errors are JSON on stderr**, `{"error":"code","message":"..."}`, with exit code 1, or 2 for usage errors. Codes are stable across 1.x.
 - **Concurrency is safe**: many agents can read and write one store at once; SQLite WAL mode lets readers proceed during a write and makes writers wait instead of failing.
-- **Resuming is one command**: `sillok status` lists open objectives and recent work for the current repository, including work recorded in its other worktrees and in other clones of the same remote.
+- **Resuming is one command**: `sillok status` lists open objectives and recent work for the current repository, including work recorded in its other worktrees and in other clones of the same remote, whichever URL each clone uses.
 
 ## Model
 
@@ -61,10 +68,10 @@ Every change is an immutable event; current records are a projection that `sillo
 
 | Command | Purpose |
 | --- | --- |
-| `note <text> [--parent] [--status] [--tags] [--purpose]` | Record a task (default `completed`) |
+| `note <text> [--parent] [--status] [--tags] [--purpose]`, `note --stdin` | Record a task (default `completed`), or one per JSON line |
 | `objective add <text> [--parent] [--tags] [--status]` | Start an objective (default `active`) |
 | `objective complete <id> [--note]` | Complete an objective |
-| `objective list [--all] [--limit]` | Open objectives |
+| `objective list [--all] [--limit]` | Open objectives, newest 20 by default |
 | `amend <id> [--text] [--status] [--purpose\|--clear-purpose] [--tags\|--clear-tags] [--note]` | Change fields |
 | `move <id> (--parent <id>\|--top)` | Re-parent; cycles are rejected |
 | `retract <id> --reason` / `restore <id>` | Hide or unhide |
@@ -75,11 +82,12 @@ Every change is an immutable event; current records are a projection that `sillo
 | `status [--all] [--limit]` | Open objectives and recent work in this repository |
 | `export [--events] [--from] [--to]` | JSON lines: records, or raw events (the portable archive) |
 | `import <path> [--dry-run]` | Merge a 0.x store or archive, an events export, or a sync directory |
-| `doctor [--repair]` | Integrity check and replay comparison |
+| `doctor [--repair] [--prune]` | Integrity check and replay comparison; `--prune` deletes backup files beside the store and leftover sync directories |
 | `sync [--dry-run]`, `sync remote set <url> [--branch] [--dir]`, `sync remote show`, `sync auto <minutes>` | Git sync |
 | `reset --yes` | Back up, then empty the store |
 | `guide` | Agent usage guide |
-| `skill install [--tool claude\|codex] [--dir <root>]`, `skill status`, `skill print` | Install, inspect, or print the agent skill |
+| `skill install [--tool claude\|codex] [--dir <root>] [--hooks]`, `skill status`, `skill print` | Install, inspect, or print the agent skill; `--hooks` registers the hooks |
+| `hook` | Handle one Claude Code or Codex hook event from stdin |
 
 Global options: `--store`, `--tz`, `--at` (backfill: RFC 3339, or `YYYY-MM-DDTHH:MM[:SS]` in `--tz`), `--full`, `--json`, `--human`.
 

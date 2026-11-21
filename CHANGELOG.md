@@ -1,5 +1,24 @@
 # Changelog
 
+## 1.2.0
+
+### Added
+
+- **Hooks.** `sillok hook` handles Claude Code and Codex hook events, and `sillok skill install --hooks` registers it for both. At session start it returns the repository's status as context, so resuming costs no tool call, and on Claude Code it exports `SILLOK_SESSION` so events carry the session label. At the end of a turn that changed files or systems without a Sillok write, it sends the turn back once with a reminder. Registration is idempotent, keeps every other setting, and replaces entries for the standalone `sillok-reminder` binary, whose logic now lives here.
+- **Id prefixes.** Any command that takes an id accepts a prefix of at least eight hex digits that names one record; a shared prefix fails with `ambiguous_id`.
+- **Batch notes.** `sillok note --stdin` records one task per JSON line in a single transaction, with the command's flags as defaults for lines that omit a field.
+- **`doctor --prune`.** `doctor` now reports the backup files beside the store and leftover sync directories under `leftovers`; `--prune` deletes them.
+
+### Changed
+
+- **`status` matches a repository across URL spellings.** `git@github.com:o/r.git` on one machine and `https://github.com/o/r` on another are the same repository; 1.1 compared the URLs exactly.
+- **`objective list` keeps the newest 20** by default instead of 50. `--limit` is unchanged.
+- **Completing an objective starts a background sync** when one is due, so finished work does not wait for the next session.
+
+### Compatibility
+
+The store, event format, and sync layout are unchanged.
+
 ## 1.1.1
 
 ### Added

@@ -33,3 +33,15 @@ Codex reads both of its roots. The root that already holds the skill wins; with 
 | `missing` | No file | Nothing |
 
 The refresh costs one small file read per tool, never fails the command, and is disabled by `SILLOK_SKILL_AUTOUPDATE=0`. Project-level copies installed with `--dir` are not tracked; re-run the install after an upgrade.
+
+## Hooks
+
+`sillok hook` is one entry point for the events both tools send as a JSON object on stdin, and `skill install --hooks` registers it. `skill::hooks` edits the tool's hook file (`settings.json` for Claude Code, `hooks.json` for Codex) as JSON: for `SessionStart`, `PostToolUse`, and `Stop` it removes handlers whose command names `sillok hook` or the earlier standalone `sillok-reminder`, drops groups that removal emptied, and appends one handler. The file is rewritten only when the result differs, so a second run reports `unchanged`, and no other key or handler is touched. A file that is not valid JSON is refused, not overwritten. The handler command is guarded with `command -v sillok` and ends in `|| exit 0`, so a machine that shares the configuration without the binary, or with one older than 1.2, runs a no-op instead of failing every tool call.
+
+| Event | Behaviour |
+| --- | --- |
+| `SessionStart` | Runs `status` for the payload's working directory with five recent records and returns it as `hookSpecificOutput.additionalContext`, trimmed oldest-first to 8,000 characters (Claude Code caps context at 10,000). When `CLAUDE_ENV_FILE` is set, appends `export SILLOK_SESSION=<session id>` once. Subagent sessions are ignored. |
+| `PostToolUse` | Classifies the tool call (`hook::reminder`) and appends to a per-session ledger whether it changed files or systems and whether it wrote to Sillok. |
+| `Stop` | Reads and clears the ledger. A turn with a change and no Sillok write gets `{"decision":"block","reason":...}`, which both tools treat as a continuation prompt. A Stop that is already a continuation always ends the turn, so the reminder fires once. |
+
+The hook prints only what the host parses, regardless of `SILLOK_OUTPUT`, reads at most 8 MiB with a two-second stdin deadline, and exits successfully on every failure after logging it to stderr. The ledger lives under the temporary directory (`SILLOK_REMINDER_DIR` overrides it), is bounded per session, and holds short labels such as `git push`, never argument values or tool output.
