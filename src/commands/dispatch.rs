@@ -40,7 +40,9 @@ pub fn execute(cli: Cli) -> Result<Outcome, SillokError> {
         Command::Export(args) => admin::export(&mut ctx, args),
         Command::Import(args) => import::import(&mut ctx, &args.path, args.dry_run),
         Command::Doctor(args) => admin::doctor(&mut ctx, args.repair),
-        Command::Sync(args) => service::dispatch(&mut ctx, args.dry_run, args.command),
+        Command::Sync(args) => {
+            service::dispatch(&mut ctx, args.dry_run, args.background, args.command)
+        }
         Command::Reset(args) => admin::reset(&mut ctx, args.yes),
         Command::Migrate(args) => import::migrate(&mut ctx, args),
         Command::Guide => Ok(admin::guide()),

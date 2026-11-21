@@ -100,6 +100,16 @@ pub fn run_in(
     cwd: &Path,
     args: &[&str],
 ) -> Result<Output, Box<dyn std::error::Error>> {
+    run_with(store, cwd, args, &[])
+}
+
+/// `run_in` with extra environment variables, applied last.
+pub fn run_with(
+    store: &Path,
+    cwd: &Path,
+    args: &[&str],
+    envs: &[(&str, &str)],
+) -> Result<Output, Box<dyn std::error::Error>> {
     let mut command = match std::process::Command::cargo_bin("sillok") {
         Ok(value) => value,
         Err(error) => return Err(Box::new(error)),
@@ -121,10 +131,13 @@ pub fn run_in(
         .env_remove("CLAUDE_CONFIG_DIR")
         .env_remove("CODEX_HOME")
         .env_remove("SILLOK_SKILL_AUTOUPDATE")
+        // No test starts a background sync unless it asks for one.
+        .env("SILLOK_AUTOSYNC", "0")
         .env_remove("SILLOK_OUTPUT")
         .env_remove("SILLOK_SESSION")
         .env_remove("SILLOK_ACTOR")
-        .args(args);
+        .args(args)
+        .envs(envs.iter().copied());
     match command.output() {
         Ok(value) => Ok(value),
         Err(error) => Err(Box::new(error)),

@@ -13,6 +13,7 @@ use crate::domain::record::RecordKind;
 use crate::error::SillokError;
 use crate::skill::install;
 use crate::storage::sqlite::reads::RecordFilter;
+use crate::sync::auto;
 
 /// `status`: what an agent needs to resume work in this repository.
 pub fn status(ctx: &mut Ctx, args: StatusArgs) -> Result<Outcome, SillokError> {
@@ -23,6 +24,11 @@ pub fn status(ctx: &mut Ctx, args: StatusArgs) -> Result<Outcome, SillokError> {
     // Session start is the one moment every agent runs this command, so it
     // is where an installed skill left behind by an upgrade gets refreshed.
     ctx.warnings.extend(install::refresh());
+    // It is also the moment to exchange events with the other replicas,
+    // in the background so resuming never waits on the network.
+    if let Some(notice) = auto::maybe_start(&ctx.store_path, ctx.now) {
+        ctx.warnings.push(notice);
+    }
     let (context, remote) = match &scope {
         Some(value) => (Some(value.root.clone()), value.remote.clone()),
         None => (None, None),

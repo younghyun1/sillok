@@ -8,6 +8,7 @@ use crate::cli::args::admin::{SyncCommand, SyncRemoteCommand, SyncRemoteSetArgs}
 use crate::cli::output::outcome::Outcome;
 use crate::commands::ctx::Ctx;
 use crate::error::SillokError;
+use crate::sync::auto;
 use crate::sync::config::{self, SyncConfig};
 use crate::sync::exchange::{self, Report};
 
@@ -19,10 +20,27 @@ const ATTEMPTS: u32 = 3;
 pub fn dispatch(
     ctx: &mut Ctx,
     dry_run: bool,
+    background: bool,
     command: Option<SyncCommand>,
 ) -> Result<Outcome, SillokError> {
     match command {
-        None | Some(SyncCommand::Run) => run(ctx, dry_run),
+        None | Some(SyncCommand::Run) => {
+            let result = run(ctx, dry_run);
+            if background {
+                auto::finish(
+                    &ctx.store_path,
+                    match &result {
+                        Ok((_, report)) => Ok(report),
+                        Err(error) => Err(error),
+                    },
+                );
+            }
+            match result {
+                Ok((config, report)) => Ok(outcome(ctx, &config, report, dry_run)),
+                Err(error) => Err(error),
+            }
+        }
+        Some(SyncCommand::Auto(args)) => auto_set(ctx, args.minutes),
         Some(SyncCommand::Remote(args)) => match args.command {
             SyncRemoteCommand::Set(set) => remote_set(ctx, set),
             SyncRemoteCommand::Show => remote_show(ctx),
@@ -30,7 +48,7 @@ pub fn dispatch(
     }
 }
 
-fn run(ctx: &mut Ctx, dry_run: bool) -> Result<Outcome, SillokError> {
+fn run(ctx: &mut Ctx, dry_run: bool) -> Result<(SyncConfig, Report), SillokError> {
     let config = match config::read(&ctx.store_path) {
         Ok(value) => value,
         Err(error) => return Err(error),
@@ -42,7 +60,7 @@ fn run(ctx: &mut Ctx, dry_run: bool) -> Result<Outcome, SillokError> {
     let mut last_error = None;
     for attempt in 0..ATTEMPTS {
         match exchange::attempt(&mut store, &config, dry_run) {
-            Ok(report) => return Ok(outcome(ctx, &config, report, dry_run)),
+            Ok(report) => return Ok((config, report)),
             Err(error) if error.is_retryable() && attempt + 1 < ATTEMPTS => {
                 std::thread::sleep(backoff(attempt));
                 last_error = Some(error);
@@ -114,7 +132,32 @@ fn remote_show(ctx: &mut Ctx) -> Result<Outcome, SillokError> {
     match config::read(&ctx.store_path) {
         Ok(config) => Ok(Outcome::read(
             "sync",
-            json!({ "config": config, "sidecar": config::sidecar(&ctx.store_path).display().to_string() }),
+            json!({
+                "auto_minutes": match config.auto_minutes {
+                    Some(value) => value,
+                    None => auto::DEFAULT_MINUTES,
+                },
+                "background": auto::read_state(&ctx.store_path),
+                "config": config,
+                "sidecar": config::sidecar(&ctx.store_path).display().to_string(),
+            }),
+        )),
+        Err(error) => Err(error),
+    }
+}
+
+/// `sync auto <minutes>`: keeps the remote and changes only the interval.
+fn auto_set(ctx: &mut Ctx, minutes: u32) -> Result<Outcome, SillokError> {
+    let mut config = match config::read(&ctx.store_path) {
+        Ok(value) => value,
+        Err(error) => return Err(error),
+    };
+    config.auto_minutes = Some(minutes);
+    match config::write(&ctx.store_path, &config) {
+        Ok(path) => Ok(Outcome::write(
+            "sync",
+            vec![path.display().to_string()],
+            json!({ "config": config, "sidecar": path.display().to_string() }),
         )),
         Err(error) => Err(error),
     }

@@ -47,6 +47,9 @@ pub struct SyncArgs {
     /// Report what would be pulled and pushed without writing.
     #[arg(long)]
     pub dry_run: bool,
+    /// Set by `status` on the sync it starts: record the result beside the store.
+    #[arg(long, hide = true, conflicts_with = "dry_run")]
+    pub background: bool,
     #[command(subcommand)]
     pub command: Option<SyncCommand>,
 }
@@ -56,9 +59,18 @@ pub struct SyncArgs {
 pub enum SyncCommand {
     /// Configure the Git remote.
     Remote(SyncRemoteArgs),
+    /// Minutes between the background syncs `status` starts; 0 turns them off.
+    Auto(SyncAutoArgs),
     /// 0.10 spelling of bare `sync`.
     #[command(hide = true)]
     Run,
+}
+
+/// `sync auto`.
+#[derive(Debug, Args)]
+pub struct SyncAutoArgs {
+    /// Default: 60.
+    pub minutes: u32,
 }
 
 /// `sync remote`.

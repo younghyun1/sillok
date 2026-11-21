@@ -24,6 +24,10 @@ pub struct SyncConfig {
     /// 0.10 single-file artifact; imported and deleted on the next sync.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub legacy_path: Option<String>,
+    /// Minutes between background syncs started by `status`; absent means
+    /// the default and `0` turns them off. Older 1.x binaries ignore it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auto_minutes: Option<u32>,
 }
 
 impl SyncConfig {
@@ -46,6 +50,7 @@ impl SyncConfig {
                 None => DEFAULT_DIR.to_string(),
             },
             legacy_path,
+            auto_minutes: None,
         };
         match config.validate() {
             Ok(()) => Ok(config),
